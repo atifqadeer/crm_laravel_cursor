@@ -54,7 +54,33 @@ class CrmController extends Controller
         $jobCategories = JobCategory::where('is_active', 1)->orderBy('name', 'asc')->get();
         $jobTitles = JobTitle::where('is_active', 1)->orderBy('name', 'asc')->get();
 
-        return view('crm.list', compact('jobCategories', 'jobTitles'));
+        $hidePrivateDataSetting = Setting::where('key', 'hide_private_data')->value('value');
+        $hidePrivateData = array_filter(
+            array_map('trim', explode(',', $hidePrivateDataSetting ?? ''))
+        );
+
+        $sourceIds = [];
+
+        if (!Gate::allows('show-private-data') && count($hidePrivateData) > 0) {
+            $sourceIds = JobSource::where('is_active', 1)
+                ->where(function ($q) use ($hidePrivateData) {
+                    foreach ($hidePrivateData as $hideName) {
+                        $q->orWhere('name', 'LIKE', '%' . $hideName . '%');
+                    }
+                })
+                ->pluck('id')
+                ->toArray();
+        }
+
+        $query = JobSource::where('is_active', 1);
+
+        if (count($sourceIds) > 0) {
+            $query->whereNotIn('id', $sourceIds);
+        }
+
+        $jobSources = $query->orderBy('name', 'asc')->get();
+
+        return view('crm.list', compact('jobCategories', 'jobTitles', 'jobSources'));
     }
     public function crmNotesHistoryIndex($applicant_id, $sale_id)
     {
@@ -79,10 +105,17 @@ class CrmController extends Controller
     public function getCrmApplicantsAjaxRequest(Request $request)
     {
         $typeFilter = $request->input('type_filter', '');
-        $categoryFilter = $request->input('category_filter', '');
-        $titleFilter = $request->input('title_filter', '');
+        $categoryFilter = $request->input('category_filter', []);
+        $titleFilter = $request->input('title_filter', []);
+        $sourceFilter = $request->input('source_filter', []);
         $tabFilter = $request->input('tab_filter', '');
         $date_range_filter = $request->input('date_range_filter', '');
+
+        // DataTables / broken clients can send a scalar instead of an array.
+        // whereIn() requires an array — a string triggers count() TypeError.
+        $categoryFilter = array_values(array_filter((array) $categoryFilter, fn ($v) => $v !== '' && $v !== null));
+        $titleFilter = array_values(array_filter((array) $titleFilter, fn ($v) => $v !== '' && $v !== null));
+        $sourceFilter = array_values(array_filter((array) $sourceFilter, fn ($v) => $v !== '' && $v !== null));
 
         // Base query with minimal selected columns and eager loading
         $model = Applicant::query()
@@ -109,7 +142,9 @@ class CrmController extends Controller
             ->whereNull('applicants.deleted_at')
             ->leftJoin('job_titles', fn($join) => $join->on('applicants.job_title_id', '=', 'job_titles.id'))
             ->leftJoin('job_categories', fn($join) => $join->on('applicants.job_category_id', '=', 'job_categories.id'))
-            ->leftJoin('job_sources', fn($join) => $join->on('applicants.job_source_id', '=', 'job_sources.id'));
+            ->leftJoin('job_sources', fn($join) => $join->on('applicants.job_source_id', '=', 'job_sources.id'))
+            // Joined once so free-text search can hit owner name without a missing-column error.
+            ->leftJoin('users as applicant_owner_users', fn($join) => $join->on('applicants.user_id', '=', 'applicant_owner_users.id'));
 
         // Apply tab filter logic (optimized with DB::raw)
         switch ($tabFilter) {
@@ -176,6 +211,7 @@ class CrmController extends Controller
                         $join->where('interviews.status', 1);
                     })
                     ->leftJoin('users', 'users.id', '=', 'revert_stages.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         //office
                         'offices.office_name as office_name',
@@ -185,6 +221,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -301,6 +339,7 @@ class CrmController extends Controller
                         }
                     )
                     ->leftJoin('users', 'cv_notes.user_id', '=', 'users.id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Quality Notes
                         'crm_notes.details as notes_detail',
@@ -313,6 +352,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -410,6 +451,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_last_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Applicants
                         'applicants.id as applicant_id',
@@ -428,6 +470,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -530,6 +574,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Applicants
                         'applicants.id as applicant_id',
@@ -547,6 +592,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -645,6 +692,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Crm Notes
                         'latest_crm.latest_details as notes_detail',
@@ -665,6 +713,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -762,6 +812,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Crm Notes
                         'latest_crm.latest_details as notes_detail',
@@ -782,6 +833,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -884,6 +937,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'latest_cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Applicants
                         'applicants.id as applicant_id',
@@ -899,6 +953,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1016,6 +1072,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Crm Notes
                         'latest_crm.latest_details as notes_detail',
@@ -1030,6 +1087,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1141,6 +1200,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Crm Notes
                         'latest_crm.latest_details as notes_detail',
@@ -1153,6 +1213,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1251,6 +1313,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Applicants
                         'applicants.id as applicant_id',
@@ -1265,6 +1328,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1363,6 +1428,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Crm Notes
                         'latest_crm.latest_details as notes_detail',
@@ -1375,6 +1441,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1454,6 +1522,7 @@ class CrmController extends Controller
                         }
                     )
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Crm Notes
                         'crm_notes.details as notes_detail',
@@ -1466,6 +1535,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1563,6 +1634,7 @@ class CrmController extends Controller
                         $join->on('latest_crm.applicant_id', '=', 'applicants.id')
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Applicants
                         'applicants.id as applicant_id',
@@ -1577,6 +1649,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1675,6 +1749,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Crm Notes
                         'latest_crm.latest_details as notes_detail',
@@ -1687,6 +1762,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1786,6 +1863,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // Crm Notes
                         'latest_crm.latest_details as notes_detail',
@@ -1798,6 +1876,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1897,6 +1977,7 @@ class CrmController extends Controller
                             ->on('latest_crm.sale_id', '=', 'sales.id');
                     })
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // show created date
                         'crm_notes.created_at as show_created_at',
@@ -1909,6 +1990,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -1991,6 +2074,7 @@ class CrmController extends Controller
                         }
                     )
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // show created date
                         'crm_notes.created_at as show_created_at',
@@ -2003,6 +2087,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -2083,6 +2169,7 @@ class CrmController extends Controller
                         }
                     )
                     ->leftJoin('users', 'users.id', '=', 'cv_notes.user_id')
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // show created date
                         'crm_notes.created_at as show_created_at',
@@ -2095,6 +2182,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -2197,6 +2286,7 @@ class CrmController extends Controller
                             ->whereIn('history.sub_stage', ['quality_cleared', 'crm_save'])
                             ->where('history.status', 1);
                     })
+                    ->leftJoin('job_sources as sale_job_sources', fn($join) => $join->on('sales.job_source_id', '=', 'sale_job_sources.id'))
                     ->addSelect([
                         // CRM Notes
                         'crm_notes.details as notes_detail',
@@ -2209,6 +2299,8 @@ class CrmController extends Controller
                         'sales.id as sale_id',
                         'sales.job_category_id as sale_category_id',
                         'sales.job_title_id as sale_title_id',
+                        'sales.job_source_id as sale_source_id',
+                        'sale_job_sources.name as sale_source_name',
                         'sales.sale_postcode',
                         'sales.job_type as sale_job_type',
                         'sales.timing',
@@ -2265,11 +2357,18 @@ class CrmController extends Controller
         if ($typeFilter) {
             $model->where('applicants.job_type', $typeFilter);
         }
-        if ($categoryFilter) {
+        if ($categoryFilter !== []) {
             $model->whereIn('applicants.job_category_id', $categoryFilter);
         }
-        if ($titleFilter) {
+        if ($titleFilter !== []) {
             $model->whereIn('applicants.job_title_id', $titleFilter);
+        }
+        // Job source filter (sale source OR applicant source)
+        if ($sourceFilter !== []) {
+            $model->where(function ($q) use ($sourceFilter) {
+                $q->whereIn('sales.job_source_id', $sourceFilter)
+                    ->orWhereIn('applicants.job_source_id', $sourceFilter);
+            });
         }
 
         if ($request->has('search.value')) {
@@ -2285,49 +2384,60 @@ class CrmController extends Controller
                         ->orWhereRaw('LOWER(applicants.applicant_phone_secondary) LIKE ?', ["%{$lowerSearchTerm}%"])
                         ->orWhereRaw('LOWER(applicants.applicant_experience) LIKE ?', ["%{$lowerSearchTerm}%"])
                         ->orWhereRaw('LOWER(applicants.applicant_landline) LIKE ?', ["%{$lowerSearchTerm}%"])
-                        ->orWhereRaw('LOWER(sales.sale_postcode) LIKE ?', ["%{$lowerSearchTerm}%"]); // Relationship searches with explicit table names and LOWER 
-                    $query->orWhereHas('jobTitle', function ($q) use ($lowerSearchTerm) {
-                        $q->whereRaw('LOWER(job_titles.name) LIKE ?', ["%{$lowerSearchTerm}%"]);
-                    });
-                    $query->orWhereHas('jobCategory', function ($q) use ($lowerSearchTerm) {
-                        $q->whereRaw('LOWER(job_categories.name) LIKE ?', ["%{$lowerSearchTerm}%"]);
-                    });
-                    $query->orWhereHas('jobSource', function ($q) use ($lowerSearchTerm) {
-                        $q->whereRaw('LOWER(job_sources.name) LIKE ?', ["%{$lowerSearchTerm}%"]);
-                    });
-                    // ✅ OFFICE NAME SEARCH (FIXED)
-                    $query->orWhereRaw('LOWER(offices.office_name) LIKE ?', ["%{$lowerSearchTerm}%"]);
-
-                    $query->orWhereHas('user', function ($q) use ($lowerSearchTerm) {
-                        $q->whereRaw('LOWER(users.name) LIKE ?', ["%{$lowerSearchTerm}%"]);
-                    });
+                        ->orWhereRaw('LOWER(sales.sale_postcode) LIKE ?', ["%{$lowerSearchTerm}%"]);
+                    // Only search columns that are always joined (base + sales/offices from every tab).
+                    // Do NOT reference sale_job_sources / users here — those joins are tab-specific.
+                    $query->orWhereRaw('LOWER(job_titles.name) LIKE ?', ["%{$lowerSearchTerm}%"])
+                        ->orWhereRaw('LOWER(job_categories.name) LIKE ?', ["%{$lowerSearchTerm}%"])
+                        ->orWhereRaw('LOWER(job_sources.name) LIKE ?', ["%{$lowerSearchTerm}%"])
+                        ->orWhereRaw('LOWER(offices.office_name) LIKE ?', ["%{$lowerSearchTerm}%"])
+                        ->orWhereRaw('LOWER(applicant_owner_users.name) LIKE ?', ["%{$lowerSearchTerm}%"]);
                 });
             }
         }
 
-        // Sorting logic 
-        if ($request->has('order')) {
-            $orderColumn = $request->input('columns.' . $request->input('order.0.column') . '.data');
-            $orderDirection = $request->input('order.0.dir', 'asc');
-            if ($orderColumn == 'job_source') {
-                $model->orderBy('applicants.job_source_id', $orderDirection);
-            } elseif ($orderColumn == 'job_category') {
-
-                $model->orderBy('applicants.job_category_id', $orderDirection);
-            } elseif ($orderColumn == 'job_title') {
-                $model->orderBy('applicants.job_title_id', $orderDirection);
-            } elseif ($orderColumn && $orderColumn !== 'DT_RowIndex') {
-                $model->orderBy($orderColumn, $orderDirection);
+        // Sorting logic — deferred to DataTables' ->order() callback below so the
+        // ORDER BY clause is not baked into the filtered-count query (it only needs
+        // to apply to the final, paginated result set).
+        $applySorting = function ($query) use ($request) {
+            if ($request->has('order')) {
+                $orderColumn = $request->input('columns.' . $request->input('order.0.column') . '.data');
+                $orderDirection = $request->input('order.0.dir', 'asc');
+                if ($orderColumn == 'job_source') {
+                    $query->orderBy('applicants.job_source_id', $orderDirection);
+                } elseif ($orderColumn == 'job_category') {
+                    $query->orderBy('applicants.job_category_id', $orderDirection);
+                } elseif ($orderColumn == 'job_title') {
+                    $query->orderBy('applicants.job_title_id', $orderDirection);
+                } elseif ($orderColumn && $orderColumn !== 'DT_RowIndex') {
+                    $query->orderBy($orderColumn, $orderDirection);
+                } else {
+                    $query->orderBy('show_created_at', 'desc');
+                }
             } else {
-                $model->orderBy('show_created_at', 'desc');
+                $query->orderBy('show_created_at', 'desc');
             }
-        } else {
-            $model->orderBy('show_created_at', 'desc');
-        }
+        };
 
         if ($request->ajax()) {
+            // Small reference/lookup tables and request-wide constants used inside the
+            // per-row column closures below. Fetching them once here (instead of once
+            // per row inside addColumn) avoids running the same handful of queries
+            // dozens of times per page load.
+            $jobTitleNamesById = JobTitle::pluck('name', 'id');
+            $jobCategoryNamesById = JobCategory::pluck('name', 'id');
+
+            $smsTemplateCrmSendRequest = SmsTemplate::where('slug', 'crm_send_request')
+                ->where('status', 1)
+                ->first();
+            $smsNotificationSetting = Setting::where('key', 'sms_notifications')->first();
+            $emailNotificationSetting = Setting::where('key', 'email_notifications')->first();
+            $emailTemplateRequestConfiguration = EmailTemplate::where('slug', 'request_configuration_email')->where('is_active', 1)->first();
+            $emailTemplateRequestRejected = EmailTemplate::where('slug', 'request_rejected')->where('is_active', 1)->first();
+
             return DataTables::eloquent($model)
                 ->skipTotalRecords()
+                ->order($applySorting)
                 ->addIndexColumn() // This will automatically add a serial number to the rows
                 ->addColumn("user_name", function ($applicant) {
                     return $applicant->user_name ? ucwords($applicant->user_name) : '-';
@@ -2360,6 +2470,11 @@ class CrmController extends Controller
                 })
                 ->addColumn('job_source', function ($applicant) {
                     return $applicant->jobSource ? ucwords($applicant->jobSource) : '-';
+                })
+                ->addColumn('sale_source_name', function ($sale) {
+                    if (!$sale->sale_source_name)
+                        return '-';
+                    return '<span class="badge bg-light text-dark">' . e($sale->sale_source_name) . '</span>';
                 })
                 ->addColumn('applicant_name', function ($applicant) {
                     return $applicant->formatted_applicant_name; // Using accessor
@@ -2482,7 +2597,7 @@ class CrmController extends Controller
                 ->addColumn('paid_status', function ($applicant) {
                     return $applicant->paid_status ?? '-';
                 })
-                ->addColumn('job_details', function ($applicant) {
+                ->addColumn('job_details', function ($applicant) use ($jobTitleNamesById, $jobCategoryNamesById) {
                     $position_type = strtoupper(str_replace('-', ' ', $applicant->position_type ?? ''));
                     $position = '<span class="badge bg-primary">' . e($position_type) . '</span>'; // only escape text
                     $status = '';
@@ -2496,21 +2611,20 @@ class CrmController extends Controller
                         $status = '<span class="badge bg-danger">Rejected</span>';
                     }
 
+                    $sale_source_name = '';
+                    if ($applicant->sale_source_name){
+                        $sale_source_name = '<span class="badge bg-light text-dark">' . e($applicant->sale_source_name) . '</span>';
+                    }
+
                     $postcode = strtoupper($applicant->sale_postcode);
                     $posted_date = Carbon::parse($applicant->sale_posted_date)->format('d M Y, h:i A');
                     $office_name = ucwords($applicant->office_name) ?? '-';
                     $unit_name = ucwords($applicant->unit_name) ?? '-';
-                    $jobTitleName = JobTitle::where('id', $applicant->sale_title_id)->first('name');
-                    $jobTitle = '-';
-                    if ($jobTitleName) {
-                        $jobTitle = strtoupper($jobTitleName->name);
-                    }
+                    $jobTitleNameValue = $jobTitleNamesById->get($applicant->sale_title_id);
+                    $jobTitle = $jobTitleNameValue ? strtoupper($jobTitleNameValue) : '-';
                     $stype  = $applicant->sale_job_type && $applicant->sale_job_type == 'specialist' ? '<br>(' . ucwords('Specialist') . ')' : '';
-                    $jobCategoryName = JobCategory::where('id', $applicant->sale_category_id)->first('name');
-                    $jobCategory = '-';
-                    if ($jobCategoryName) {
-                        $jobCategory = ucwords($jobCategoryName->name) . $stype;
-                    }
+                    $jobCategoryNameValue = $jobCategoryNamesById->get($applicant->sale_category_id);
+                    $jobCategory = $jobCategoryNameValue ? (ucwords($jobCategoryNameValue) . $stype) : '-';
 
                     $jobData = [
                         'sale_id'       => (int)$applicant->sale_id,
@@ -2520,6 +2634,7 @@ class CrmController extends Controller
                         'postcode'      => $postcode,
                         'job_category'  => $jobCategory,
                         'job_title'     => $jobTitle,
+                        'sale_source_name' => $sale_source_name,
                         'status'        => $status,       // RAW HTML
                         'timing'        => $applicant->timing,
                         'experience'    => $applicant->sale_experience,
@@ -2538,14 +2653,18 @@ class CrmController extends Controller
                             <iconify-icon icon="solar:square-arrow-right-up-bold" class="text-info fs-24"></iconify-icon>
                         </a>';
                 })
-                ->addColumn('action', function ($applicant) use ($tabFilter) {
+                ->addColumn('action', function ($applicant) use (
+                    $tabFilter,
+                    $smsTemplateCrmSendRequest,
+                    $smsNotificationSetting,
+                    $emailNotificationSetting,
+                    $emailTemplateRequestConfiguration,
+                    $emailTemplateRequestRejected
+                ) {
                     $formattedMessage = '';
-                    // Fetch SMS template from the database
-                    $sms_template = SmsTemplate::where('slug', 'crm_send_request')
-                        ->where('status', 1)
-                        ->first();
-
-                    $smsNotification = Setting::where('key', 'sms_notifications')->first();
+                    // SMS template + settings fetched once above (they are the same for every row).
+                    $sms_template = $smsTemplateCrmSendRequest;
+                    $smsNotification = $smsNotificationSetting;
 
                     if ($smsNotification && $sms_template && $smsNotification->value == '1' && !empty($sms_template->template)) {
                         $sms_template = $sms_template->template;
@@ -3801,9 +3920,10 @@ class CrmController extends Controller
                     $newPhrase = '';
                     $newSubject = '';
                     $applicant_email = '';
-                    $request_configuration_email = EmailTemplate::where('slug', 'request_configuration_email')->where('is_active', 1)->first();
+                    // Fetched once above; cloned here since the loop below mutates attributes.
+                    $request_configuration_email = $emailTemplateRequestConfiguration ? clone $emailTemplateRequestConfiguration : null;
 
-                    $emailNotification = Setting::where('key', 'email_notifications')->first();
+                    $emailNotification = $emailNotificationSetting;
 
                     if ($emailNotification && $emailNotification->value == '1' && $request_configuration_email && !empty($request_configuration_email->template)) {
                         // Loop through each attribute of the model
@@ -3991,12 +4111,13 @@ class CrmController extends Controller
                             </div>';
 
                     /** CRM Move to Confirmation Modal */
-                    $request_reject_email_template = EmailTemplate::where('slug', 'request_rejected')->where('is_active', 1)->first();
+                    // Fetched once above (same for every row).
+                    $request_reject_email_template = $emailTemplateRequestRejected;
                     $request_reject_template = '';
                     $request_reject_subject = '';
                     $request_reject_slug = '';
 
-                    $emailNotification = Setting::where('key', 'email_notifications')->first();
+                    $emailNotification = $emailNotificationSetting;
 
                     if ($emailNotification && $emailNotification->value == '1' && $request_reject_email_template && !empty($request_reject_email_template->template)) {
                         $request_reject_subject = $request_reject_email_template->subject;
@@ -5059,7 +5180,7 @@ class CrmController extends Controller
                             </div>';
                     return $html;
                 })
-                ->rawColumns(['notes_detail', 'applicant_email', 'show_created_at', 'user_name', 'applicantPhone', 'schedule_date', 'paid_status', 'job_details', 'applicant_postcode', 'job_title', 'job_category', 'job_source', 'action'])
+                ->rawColumns(['notes_detail', 'applicant_email', 'sale_source_name', 'show_created_at', 'user_name', 'applicantPhone', 'schedule_date', 'paid_status', 'job_details', 'applicant_postcode', 'job_title', 'job_category', 'job_source', 'action'])
                 ->make(true);
         }
     }
@@ -5071,6 +5192,8 @@ class CrmController extends Controller
             'sales.id as sale_id',
             'sales.job_category_id as sale_category_id',
             'sales.job_title_id as sale_title_id',
+            'sales.job_source_id as sale_source_id',
+            'sale_job_sources.name as sale_source_name',
             'sales.sale_postcode',
             'sales.job_type as sale_job_type',
             'sales.timing',
