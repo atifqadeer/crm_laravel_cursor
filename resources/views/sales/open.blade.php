@@ -121,7 +121,7 @@
                             <!-- Category Filter Dropdown -->
                             <div class="dropdown d-inline">
                                 <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button" id="dropdownMenuButton1" data-bs-toggle="dropdown" aria-expanded="false">
-                                    <i class="ri-filter-line me-1"></i> <span id="showFilterCategory">All Category</span>
+                                    <i class="ri-filter-line me-1"></i> <span id="showFilterCategory">All Categories</span>
                                 </button>
 
                                 <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton1">
@@ -204,6 +204,48 @@
                                     </div>
                                 </div>
                             </div>
+                            <!-- Sources Filter Dropdown -->
+                            <div class="dropdown d-inline">
+                                <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button"
+                                    id="dropdownMenuButton10" data-bs-toggle="dropdown" aria-expanded="false">
+                                    <i class="ri-filter-line me-1"></i> <span id="showFilterSource">All Sources</span>
+                                </button>
+
+                                <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton10">
+                                    <!-- Search input -->
+                                    <input type="text" class="form-control mb-2" id="sourceSearchInput"
+                                        placeholder="Search Source...">
+                                    <!-- Select/Deselect All -->
+                                    <div class="d-flex justify-content-end px-1 mb-1" id="sourceToggleContainer">
+                                        <a href="#" id="sourceSelectAll"
+                                            class="filter-select-all text-primary small fw-semibold me-2"
+                                            data-target=".source-filter" data-exclude="[data-source-id='']">Select
+                                            All</a>
+                                        <a href="#" id="sourceDeselectAll"
+                                            class="filter-deselect-all text-danger small fw-semibold"
+                                            data-target=".source-filter" data-exclude="[data-source-id='']"
+                                            style="display:none">Deselect All</a>
+                                    </div>
+                                    <!-- Scrollable checkbox list -->
+                                    <div id="sourceList">
+                                        <div class="form-check">
+                                            <input class="form-check-input source-filter" type="checkbox"
+                                                value="" id="all-sources" data-source-id="">
+                                            <label class="form-check-label" for="all-sources">All Sources</label>
+                                        </div>
+
+                                        @foreach ($jobSources as $source)
+                                            <div class="form-check">
+                                                <input class="form-check-input source-filter" type="checkbox"
+                                                    value="{{ $source->id }}" id="source_{{ $source->id }}"
+                                                    data-source-id="{{ $source->id }}">
+                                                <label class="form-check-label"
+                                                    for="source_{{ $source->id }}">{{ ucwords($source->name) }}</label>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            </div>
                              <!-- cv limit Filter Dropdown -->
                             <div class="dropdown d-inline">
                                 <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button" id="dropdownMenuButton7" data-bs-toggle="dropdown" aria-expanded="false">
@@ -249,7 +291,28 @@
 <div class="row">
     <div class="col-xl-12">
         <div class="card">
-            <div class="card-body p-3">
+                <div class="card-body p-3">
+                    <!-- Columns Visibility Dropdown — moved via JS (initComplete) into the same
+                         flex row as DataTables' own "Show X entries" length control below. -->
+                    <div id="columnsToolbar" class="dropdown d-inline">
+                        <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button"
+                            id="dropdownMenuColumns" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="ri-layout-column-line me-1"></i> Columns
+                        </button>
+                        <div class="dropdown-menu filter-dropdowns p-2" aria-labelledby="dropdownMenuColumns"
+                            style="min-width: 230px;">
+                            <div class="d-flex justify-content-between align-items-center px-1 mb-2">
+                                <a href="#" id="columnsSelectAll" class="text-primary small fw-semibold">Show
+                                    All</a>
+                                <a href="#" id="columnsResetDefault"
+                                    class="text-secondary small fw-semibold">Reset Default</a>
+                            </div>
+                            <div id="columnsList" style="max-height: 280px; overflow-y: auto;">
+                                {{-- Checkbox per toggleable column is injected by JS from columnConfig,
+                                     kept in sync with the <thead> below by column index. --}}
+                            </div>
+                        </div>
+                    </div>
                 <div class="table-responsive">
                     <table id="sales_table" class="table align-middle mb-3">
                         <thead class="bg-light-subtle">
@@ -265,6 +328,7 @@
                                 <th>Position Type</th>
                                 <th>Title</th>
                                 <th>Category</th>
+                                <th>Source</th>
                                 <th>Experience</th>
                                 <th>Qualification</th>
                                 <th>Salary</th>
@@ -360,6 +424,7 @@
             var currentTypeFilter = '';
             var currentDateRangeFilter = '';
             var currentDateFlockFilter = '';
+            var currentSourceFilters = [];
             var currentCategoryFilters = [];
             var currentUserFilters = [];
             var currentTitleFilters = [];
@@ -376,6 +441,93 @@
             // Function to show loader
             function showLoader() {
                 $('#sales_table tbody').empty().append(loadingRow);
+            }
+
+            // ---------------------------------------------------------------
+            // Column visibility (show/hide columns) — same pattern as sales/list
+            // ---------------------------------------------------------------
+            // Index here MUST line up with both the <thead> markup above and
+            // the `columns:` array passed to DataTable() below. `toggleable:
+            // false` marks columns that are always shown and excluded from
+            // the "Columns" dropdown (row index + action menu).
+            const columnConfig = [
+                { title: '#', toggleable: false },
+                { title: 'Created Date', default: true },
+                { title: 'Updated Date', default: false },
+                { title: 'Open Date', default: false },
+                { title: 'Agent', default: true },
+                { title: 'Head Office', default: true },
+                { title: 'Unit Name', default: false },
+                { title: 'PostCode', default: true },
+                { title: 'Position Type', default: false },
+                { title: 'Title', default: true },
+                { title: 'Category', default: true },
+                { title: 'Source', default: true },
+                { title: 'Experience', default: false },
+                { title: 'Qualification', default: false },
+                { title: 'Salary', default: false },
+                { title: 'CV Limit', default: true },
+                { title: 'Notes', default: true },
+                { title: 'Status', default: true },
+                { title: 'Action', toggleable: false },
+            ];
+
+            const COLUMN_VISIBILITY_STORAGE_KEY = 'open_sales_table_column_visibility_v1';
+
+            function loadColumnVisibility() {
+                let stored = {};
+                try {
+                    stored = JSON.parse(localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY)) || {};
+                } catch (e) {
+                    stored = {};
+                }
+
+                return columnConfig.map(function(col, index) {
+                    if (col.toggleable === false) {
+                        return true;
+                    }
+                    return stored.hasOwnProperty(index) ? !!stored[index] : !!col.default;
+                });
+            }
+
+            function saveColumnVisibility(visibilityByIndex) {
+                const toStore = {};
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        toStore[index] = !!visibilityByIndex[index];
+                    }
+                });
+                localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(toStore));
+            }
+
+            let columnVisibility = loadColumnVisibility();
+
+            function renderColumnsDropdown() {
+                const $list = $('#columnsList');
+                $list.empty();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable === false) {
+                        return;
+                    }
+
+                    const checked = columnVisibility[index] ? 'checked' : '';
+                    $list.append(`
+                        <div class="form-check">
+                            <input class="form-check-input column-toggle" type="checkbox"
+                                id="column_${index}" data-column-index="${index}" ${checked}>
+                            <label class="form-check-label" for="column_${index}">${col.title}</label>
+                        </div>
+                    `);
+                });
+            }
+
+            renderColumnsDropdown();
+
+            function getHiddenColumnIndices() {
+                return columnVisibility
+                    .map(function(visible, index) { return visible ? null : index; })
+                    .filter(function(index) { return index !== null; });
             }
 
             // Initialize DataTable with server-side processing
@@ -395,6 +547,7 @@
                         d.title_filter = currentTitleFilters;  // Send the current filter value as a parameter
                         d.office_filter = currentOfficeFilters;  // Send the current filter value as a parameter
                         d.user_filter = currentUserFilters;  // Send the current filter value as a parameter
+                        d.source_filter = currentSourceFilters;  // Send the current filter value as a parameter
                         d.cv_limit_filter = currentCVLimitFilter;  // Send the current filter value as a parameter
                     },
                     beforeSend: function() {
@@ -417,6 +570,7 @@
                     { data: 'position_type', name: 'sales.position_type', searchable: false },
                     { data: 'job_title', name: 'job_titles.name' },
                     { data: 'job_category', name: 'job_categories.name' },
+                    { data: 'job_source', name: 'job_sources.name' },
                     { data: 'experience', name: 'sales.experience' },
                     { data: 'qualification', name: 'sales.qualification' },
                     { data: 'salary', name: 'sales.salary' },
@@ -427,34 +581,50 @@
                 ],
                 columnDefs: [
                     {
-                        targets: 7,  // Column index for 'job_details'
+                        targets: 7,  // Column index for 'postcode'
                         createdCell: function (td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center');  // Center the text in this column
                         }
                     },
                     {
-                        targets: 14,  // Column index for 'job_details'
+                        targets: 14,  // Column index for 'cv_limit'
                         createdCell: function (td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center');  // Center the text in this column
                         }
                     },
                     {
-                        targets: 16,  // Column index for 'job_details'
+                        targets: 16,  // Column index for 'status'
                         createdCell: function (td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center');  // Center the text in this column
                         }
                     },
                     {
-                        targets: 17,  // Column index for 'job_details'
+                        targets: 17,  // Column index for 'action'
                         createdCell: function (td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center');  // Center the text in this column
                         }
+                    },
+                    {
+                        // Applies the saved/default column visibility (see columnConfig
+                        // above) on the very first draw, so nothing "flashes" visible
+                        // before being hidden.
+                        targets: getHiddenColumnIndices(),
+                        visible: false
                     }
                 ],
                 rowId: function(data) {
                     return 'row_' + data.id; // Assign a unique ID to each row using the 'id' field from the data
                 },
-                dom: 'lrtip',  // Change the order to 'filter' (f), 'length' (l), 'table' (r), 'pagination' (p), and 'information' (i)
+                // 'l' (length control) wrapped in its own flex row so the "Columns" button
+                // (moved here in initComplete below) lines up beside it instead of stacking
+                // on its own line.
+                dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l>rtip',
+                initComplete: function() {
+                    const api = this.api();
+                    $(api.table().container())
+                        .find('.dataTables_length')
+                        .after($('#columnsToolbar'));
+                },
                 drawCallback: function (settings) {
                     const api = this.api();
                     const pagination = $(api.table().container()).find('.dataTables_paginate');
@@ -531,7 +701,60 @@
                 },
             });
 
-             // Search logic helper
+            // ---------------------------------------------------------------
+            // Column visibility dropdown handlers
+            // ---------------------------------------------------------------
+
+            $(document).on('change', '.column-toggle', function() {
+                const index = parseInt($(this).data('column-index'), 10);
+                const visible = $(this).is(':checked');
+
+                columnVisibility[index] = visible;
+                table.column(index).visible(visible);
+                saveColumnVisibility(columnVisibility);
+            });
+
+            $('#columnsSelectAll').on('click', function(e) {
+                e.preventDefault();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        columnVisibility[index] = true;
+                    }
+                });
+
+                table.columns().every(function() {
+                    const index = this.index();
+                    if (columnConfig[index].toggleable !== false) {
+                        this.visible(true);
+                    }
+                });
+
+                saveColumnVisibility(columnVisibility);
+                renderColumnsDropdown();
+            });
+
+            $('#columnsResetDefault').on('click', function(e) {
+                e.preventDefault();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        columnVisibility[index] = !!col.default;
+                    }
+                });
+
+                table.columns().every(function() {
+                    const index = this.index();
+                    if (columnConfig[index].toggleable !== false) {
+                        this.visible(columnVisibility[index]);
+                    }
+                });
+
+                saveColumnVisibility(columnVisibility);
+                renderColumnsDropdown();
+            });
+
+            // Search logic helper
             function handleCustomSearch() {
                 let searchValue = $('#customSearchInput').val().trim();
                 table.search(searchValue).draw();
@@ -635,6 +858,35 @@
                     ')' : 'All Category');
 
                 const container = $('#categoryToggleContainer');
+                container.find('.filter-select-all').toggle(checked < total);
+                container.find('.filter-deselect-all').toggle(checked > 0);
+
+                // Trigger DataTable reload with the selected filters
+                table.ajax.reload();
+            });
+            /*** Source Filter Handler ***/
+            $('.source-filter').on('change', function() {
+                const id = $(this).data('source-id');
+                // Handle "All Sources"
+                if (id === '' || id === undefined) {
+                    currentSourceFilters = [];
+                    $('.source-filter').not(this).prop('checked', false);
+                } else {
+                    if (this.checked) {
+                        currentSourceFilters.push(id);
+                        $('.source-filter[data-source-id=""]').prop('checked', false);
+                    } else {
+                        currentSourceFilters = currentSourceFilters.filter(x => x !== id);
+                    }
+                }
+                // Update dropdown display text and toggle visibility
+                const total = $('.source-filter').not('[data-source-id=""]').length;
+                const checked = $('.source-filter:checked').not('[data-source-id=""]').length;
+
+                $('#showFilterSource').text(checked > 0 ? 'Selected Sources (' + checked +
+                    ')' : 'All Sources');
+
+                const container = $('#sourceToggleContainer');
                 container.find('.filter-select-all').toggle(checked < total);
                 container.find('.filter-deselect-all').toggle(checked > 0);
 
