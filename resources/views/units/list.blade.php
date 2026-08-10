@@ -955,16 +955,34 @@
             });
         }
 
-        // Function to show the notes modal
+        // Contact filter radios only for users with show-private-data permission.
+        const canShowPrivateData = @json(auth()->user()?->can('show-private-data') ?? false);
+
+        // Function to show the manager details modal
         function viewManagerDetails(id) {
-            const modalId = 'viewUnitManagerDetailsModal_'+id;
+            const unitId = parseInt(id, 10) || 0;
+            if (unitId <= 0) {
+                if (typeof Swal !== 'undefined') {
+                    Swal.fire({
+                        icon: 'warning',
+                        title: 'No unit selected',
+                        text: 'Manager details are unavailable for this row.',
+                    });
+                } else {
+                    alert('Manager details are unavailable for this row.');
+                }
+                return;
+            }
+
+            const modalId = 'viewUnitManagerDetailsModal_' + unitId;
+            window.managerDetailsModalID = modalId;
 
             // Add modal to DOM only once
             if ($('#' + modalId).length === 0) {
                 $('body').append(
                     '<div class="modal fade" id="' + modalId + '" tabindex="-1" aria-labelledby="' + modalId +
                     'Label">' +
-                    '<div class="modal-dialog modal-dialog-scrollable modal-dialog-top">' +
+                    '<div class="modal-dialog modal-dialog-scrollable modal-dialog-top modal-lg">' +
                     '<div class="modal-content">' +
                     '<div class="modal-header">' +
                     '<h5 class="modal-title" id="' + modalId + 'Label">Unit Manager Details</h5>' +
@@ -1003,18 +1021,14 @@
                 url: '{{ route('getModuleContacts') }}',
                 type: 'GET',
                 data: {
-                    id: id,
+                    id: unitId,
                     module: 'Unit'
                 },
                 success: function(response) {
-
-                    window.managerContacts = response.data;
-
-                    renderContacts('all', id);
-
+                    window.managerContacts = response.data || [];
+                    renderContacts('all');
                 },
-                error: function(xhr, status, error) {
-
+                error: function(xhr) {
                     let message = 'Something went wrong.';
 
                     if (xhr.responseJSON && xhr.responseJSON.message) {
@@ -1024,26 +1038,33 @@
                     $('#' + modalId + ' .modal-body').html(
                         '<p class="text-danger">' + message + '</p>'
                     );
-
                 }
             });
         }
 
         $(document).on('change', 'input[name="contact_filter"]', function() {
-
+            if (!canShowPrivateData) {
+                return;
+            }
             renderContacts($(this).val());
-
         });
 
-        function renderContacts(filterType, id) {
-
+        function renderContacts(filterType) {
             var contacts = window.managerContacts || [];
+            var modalId = window.managerDetailsModalID;
+            if (!modalId) {
+                return;
+            }
+
+            // Without show-private-data, always show the full (server-filtered) list.
+            if (!canShowPrivateData) {
+                filterType = 'all';
+            }
+
             var contactHtml = '';
 
-            var modalID = '#viewUnitManagerDetailsModal'+id;
-
-            // Filter buttons
-            contactHtml += `
+            if (canShowPrivateData) {
+                contactHtml += `
                     <div class="mb-3">
                         <label class="me-3">
                             <input type="radio" name="contact_filter" value="all" ${filterType === 'all' ? 'checked' : ''}>
@@ -1062,37 +1083,36 @@
                     </div>
                     <hr>
                 `;
+            }
 
             if (contacts.length === 0) {
-
                 contactHtml += '<p>No records found.</p>';
-
             } else {
-
                 contacts.forEach(function(contact) {
-
                     var name = contact.contact_name || '';
                     var email = contact.contact_email || '';
                     var phone = contact.contact_phone || 'N/A';
                     var landline = contact.contact_landline || 'N/A';
                     var note = contact.contact_note || '';
 
-                    // Make everything lowercase for comparison.
-                    var searchString = (
-                        name + ' ' +
-                        email + ' ' +
-                        note
-                    ).toLowerCase();
+                    if (canShowPrivateData) {
+                        // Match job_sources.name LIKE %hayaibu% (e.g. "Hayaibu Talent").
+                        // Do NOT use === '%hayaibu%' — % is SQL syntax, not a JS string match.
+                        var sourceName = (contact.job_source_name
+                            || (contact.job_source && contact.job_source.name)
+                            || '').toString().toLowerCase().trim();
+                        var isHayaibuSource = contact.is_hayaibu_source === true
+                            || contact.is_hayaibu_source === 1
+                            || sourceName.indexOf('hayaibu') !== -1;
 
-                    var containsHayaibu = searchString.includes('hayaibu');
+                        // Kingsburry = non-hayaibu sources; Others = hayaibu source only.
+                        if (filterType === 'kingsburry' && isHayaibuSource) {
+                            return;
+                        }
 
-                    // Filtering logic
-                    if (filterType === 'kingsburry' && containsHayaibu) {
-                        return;
-                    }
-
-                    if (filterType === 'others' && !containsHayaibu) {
-                        return;
+                        if (filterType === 'others' && !isHayaibuSource) {
+                            return;
+                        }
                     }
 
                     contactHtml += `
@@ -1106,10 +1126,9 @@
                 <hr>
             `;
                 });
-
             }
 
-            $(modalID + ' .modal-body').html(contactHtml);
+            $('#' + modalId + ' .modal-body').html(contactHtml);
         }
 
         $(document).ready(function() {
