@@ -35,4 +35,17 @@ return [
         ],
     ],
 
+    /*
+    | Shared secret for external portal integrations (e.g. open sales feed).
+    | Send as: Authorization: Bearer <PORTAL_API_TOKEN>
+    | or header X-API-Token / query ?api_token=
+    */
+    'portal' => [
+        'token' => 'wdzmbxhbkhpmimzb',
+    ],
+
+    'microsip' => [
+        'token' => env('MICROSIP_API_TOKEN'),
+    ],
+
 ];

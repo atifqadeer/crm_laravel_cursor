@@ -9,6 +9,9 @@ class Region extends Model
     protected $table = 'regions';
     protected $fillable = [
         'name',
-        'districts_code'
+        'districts_code',
+        'latitude',
+        'longitude',
+        'radius',
     ];
 }
