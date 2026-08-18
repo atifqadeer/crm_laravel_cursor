@@ -117,14 +117,21 @@ class DashboardController extends Controller
         $unitsCount = $unitQuery->count();
         $salesCount = $saleQuery->count();
 
-        // 🧠 Optimize by getting applicant IDs that exist in pivot table once
-        $linkedApplicantIds = DB::table('applicants_pivot_sales')->distinct()->pluck('applicant_id');
-
-        // Cache those IDs in memory for all 3 queries
+        // NOTE: previously this pulled every distinct applicant_id out of
+        // applicants_pivot_sales into PHP memory and bound it as a giant
+        // `WHERE id NOT IN (?, ?, ?, ... thousands ...)` list — expensive to bind,
+        // parse, and plan, and it grows slower over time as the pivot table grows.
+        // whereNotExists() compiles to a correlated `NOT EXISTS` check that uses the
+        // existing (applicant_id, sale_id) index on applicants_pivot_sales directly,
+        // with no giant parameter list required.
         $unlinkedApplicants = Applicant::query()
             ->where('status', 1)
             ->whereNull('deleted_at')
-            ->whereNotIn('id', $linkedApplicantIds);
+            ->whereNotExists(function ($query) {
+                $query->select(DB::raw(1))
+                    ->from('applicants_pivot_sales')
+                    ->whereColumn('applicants_pivot_sales.applicant_id', 'applicants.id');
+            });
 
         // Use clones to avoid re-query building overhead
         $last7DaysCount = (clone $unlinkedApplicants)
@@ -2342,25 +2349,41 @@ class DashboardController extends Controller
     ) {
         $query = Applicant::query();
 
+        // NOTE: whereHas() compiles to a correlated `WHERE EXISTS (SELECT * FROM ...
+        // WHERE applicants.id = x.applicant_id AND ...)`, which MySQL re-evaluates for
+        // every single applicant row — regardless of how few rows actually match the
+        // stage filter. With tens of thousands of applicants this was measured taking
+        // several seconds (up to ~12s for a single stage) even though the underlying
+        // history/revert_stages tables already have indexes covering these filters.
+        //
+        // whereIn('id', $nonCorrelatedSubquery) lets MySQL run the inner query once,
+        // materialize the matching (deduped) applicant ids, and semi-join against them
+        // — the cost becomes proportional to the *matching* rows, not every applicant.
         if ($historyStage) {
-            $query->whereHas('history', function ($q) use ($historyStage, $startDate, $endDate, $historyActive) {
-                $q->whereIn('sub_stage', (array)$historyStage)
+            $query->whereIn('id', function ($q) use ($historyStage, $startDate, $endDate, $historyActive) {
+                $q->select('applicant_id')
+                    ->from('history')
+                    ->whereIn('sub_stage', (array)$historyStage)
                     ->when($historyActive !== null, fn($q2) => $q2->where('status', $historyActive))
                     ->when($startDate && $endDate, fn($q2) => $q2->whereBetween('created_at', [$startDate, $endDate]));
             });
         }
 
         if ($revertStage) {
-            $query->whereHas('revertStages', function ($q) use ($revertStage, $startDate, $endDate, $revertActive) {
-                $q->whereIn('stage', (array)$revertStage)
+            $query->whereIn('id', function ($q) use ($revertStage, $startDate, $endDate, $revertActive) {
+                $q->select('applicant_id')
+                    ->from('revert_stages')
+                    ->whereIn('stage', (array)$revertStage)
                     ->when($revertActive !== null, fn($q2) => $q2->where('status', $revertActive))
                     ->when($startDate && $endDate, fn($q2) => $q2->whereBetween('created_at', [$startDate, $endDate]));
             });
         }
 
         if ($crmStage) {
-            $query->whereHas('crmNotes', function ($q) use ($crmStage, $startDate, $endDate) {
-                $q->whereIn('moved_tab_to', (array)$crmStage)
+            $query->whereIn('id', function ($q) use ($crmStage, $startDate, $endDate) {
+                $q->select('applicant_id')
+                    ->from('crm_notes')
+                    ->whereIn('moved_tab_to', (array)$crmStage)
                     ->when($startDate && $endDate, fn($q2) => $q2->whereBetween('created_at', [$startDate, $endDate]));
             });
         }

@@ -15,21 +15,7 @@
             <div class="card">
                 <div class="card-header border-0">
                     <div class="row justify-content-between">
-                        <div class="col-lg-3">
-                            <div class="text-md-start mt-3 pt-1">
-                                <div class="input-group">
-                                    <div class="position-relative flex-grow-1" style="display: flex;">
-                                        <input type="text" id="customSearchInput" class="form-control w-100"
-                                            placeholder="Search ...">
-                                        <button class="d-none" id="customClearBtn" type="button" title="Clear"><i
-                                                class="ri-close-line"></i></button>
-                                    </div>
-                                    <button class="btn btn-primary" id="customSearchBtn" type="button"><i
-                                            class="ri-search-line"></i> Search</button>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="col-lg-9">
+                        <div class="col-lg-12">
                             <div class="text-md-end mt-3">
                                 <!-- Status Filter Dropdown -->
                                 <div class="dropdown d-inline">
@@ -82,7 +68,7 @@
                                 <!-- Category Filter Dropdown -->
                                 <div class="dropdown d-inline">
                                     <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button" id="dropdownMenuButton1" data-bs-toggle="dropdown" aria-expanded="false">
-                                        <i class="ri-filter-line me-1"></i> <span id="showFilterCategory">All Category</span>
+                                        <i class="ri-filter-line me-1"></i> <span id="showFilterCategory">All Categories</span>
                                     </button>
 
                                     <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton1">
@@ -101,7 +87,7 @@
                                             <div class="form-check">
                                                 <input class="form-check-input category-filter" type="checkbox" value=""
                                                     id="all-categories" data-category-id="">
-                                                <label class="form-check-label" for="all-categories">All Category</label>
+                                                <label class="form-check-label" for="all-categories">All Categories</label>
                                             </div>
 
                                             @foreach($jobCategories as $category)
@@ -165,6 +151,48 @@
                                         </div>
                                     </div>
                                 </div>
+                                <!-- Sources Filter Dropdown -->
+                                <div class="dropdown d-inline">
+                                        <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button"
+                                            id="dropdownMenuButton10" data-bs-toggle="dropdown" aria-expanded="false">
+                                            <i class="ri-filter-line me-1"></i> <span id="showFilterSource">All Sources</span>
+                                        </button>
+
+                                        <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton10">
+                                            <!-- Search input -->
+                                            <input type="text" class="form-control mb-2" id="sourceSearchInput"
+                                                placeholder="Search Source...">
+                                            <!-- Select/Deselect All -->
+                                            <div class="d-flex justify-content-end px-1 mb-1" id="sourceToggleContainer">
+                                                <a href="#" id="sourceSelectAll"
+                                                    class="filter-select-all text-primary small fw-semibold me-2"
+                                                    data-target=".source-filter" data-exclude="[data-source-id='']">Select
+                                                    All</a>
+                                                <a href="#" id="sourceDeselectAll"
+                                                    class="filter-deselect-all text-danger small fw-semibold"
+                                                    data-target=".source-filter" data-exclude="[data-source-id='']"
+                                                    style="display:none">Deselect All</a>
+                                            </div>
+                                            <!-- Scrollable checkbox list -->
+                                            <div id="sourceList">
+                                                <div class="form-check">
+                                                    <input class="form-check-input source-filter" type="checkbox"
+                                                        value="" id="all-sources" data-source-id="">
+                                                    <label class="form-check-label" for="all-sources">All Sources</label>
+                                                </div>
+
+                                                @foreach ($jobSources as $source)
+                                                    <div class="form-check">
+                                                        <input class="form-check-input source-filter" type="checkbox"
+                                                            value="{{ $source->id }}" id="source_{{ $source->id }}"
+                                                            data-source-id="{{ $source->id }}">
+                                                        <label class="form-check-label"
+                                                            for="source_{{ $source->id }}">{{ ucwords($source->name) }}</label>
+                                                    </div>
+                                                @endforeach
+                                            </div>
+                                        </div>
+                                    </div>
                                 <!-- cv limit Filter Dropdown -->
                                 <div class="dropdown d-inline">
                                     <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button" id="dropdownMenuButton7" data-bs-toggle="dropdown" aria-expanded="false">
@@ -180,6 +208,22 @@
                             </div>
                         </div><!-- end col-->
                     </div>
+                    <div class="row justify-content-between">
+                        <div class="col-lg-3">
+                            <div class="text-md-start mt-3 pt-1">
+                                <div class="input-group">
+                                    <div class="position-relative flex-grow-1" style="display: flex;">
+                                        <input type="text" id="customSearchInput" class="form-control w-100"
+                                            placeholder="Search ...">
+                                        <button class="d-none" id="customClearBtn" type="button" title="Clear"><i
+                                                class="ri-close-line"></i></button>
+                                    </div>
+                                    <button class="btn btn-primary" id="customSearchBtn" type="button"><i
+                                            class="ri-search-line"></i> Search</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -189,6 +233,27 @@
         <div class="col-xl-12">
             <div class="card">
                 <div class="card-body p-3">
+                    <!-- Columns Visibility Dropdown — moved via JS (initComplete) into the same
+                         flex row as DataTables' own "Show X entries" length control below. -->
+                    <div id="columnsToolbar" class="dropdown d-inline">
+                        <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button"
+                            id="dropdownMenuColumns" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="ri-layout-column-line me-1"></i> Columns
+                        </button>
+                        <div class="dropdown-menu filter-dropdowns p-2" aria-labelledby="dropdownMenuColumns"
+                            style="min-width: 230px;">
+                            <div class="d-flex justify-content-between align-items-center px-1 mb-2">
+                                <a href="#" id="columnsSelectAll" class="text-primary small fw-semibold">Show
+                                    All</a>
+                                <a href="#" id="columnsResetDefault"
+                                    class="text-secondary small fw-semibold">Reset Default</a>
+                            </div>
+                            <div id="columnsList" style="max-height: 280px; overflow-y: auto;">
+                                {{-- Checkbox per toggleable column is injected by JS from columnConfig,
+                                     kept in sync with the <thead> below by column index. --}}
+                            </div>
+                        </div>
+                    </div>
                     <div class="table-responsive">
                         <table id="sales_table" class="table align-middle mb-3">
                             <thead class="bg-light-subtle">
@@ -198,9 +263,10 @@
                                     <th>Updated Date</th>
                                     <th>Head Office</th>
                                     <th>Unit Name</th>
+                                    <th>PostCode</th>
                                     <th>Title</th>
                                     <th>Category</th>
-                                    <th>PostCode</th>
+                                    <th>Source</th>
                                     <th>Details</th>
                                     <th>Experience</th>
                                     <th>Qualification</th>
@@ -287,6 +353,7 @@
             var currentCategoryFilters = [];
             var currentTitleFilters = [];
             var currentOfficeFilters = [];
+            var currentSourceFilters = [];
             var currentFilterCvLimit = '';
 
             // Create loader row
@@ -299,6 +366,99 @@
             // Function to show loader
             function showLoader() {
                 $('#sales_table tbody').empty().append(loadingRow);
+            }
+
+            // ---------------------------------------------------------------
+            // Column visibility (show/hide columns)
+            // ---------------------------------------------------------------
+            // Index here MUST line up with both the <thead> markup above and
+            // the `columns:` array passed to DataTable() below. `toggleable:
+            // false` marks columns that are always shown and excluded from
+            // the "Columns" dropdown (row index + action menu).
+            const columnConfig = [
+                { title: '#', toggleable: false },
+                { title: 'Created Date', default: true },
+                { title: 'Updated Date', default: false },
+                { title: 'Head Office', default: true },
+                { title: 'Unit Name', default: false },
+                { title: 'PostCode', default: true },
+                { title: 'Title', default: true },
+                { title: 'Category', default: true },
+                { title: 'Source', default: true },
+                { title: 'Details', default: true },
+                { title: 'Experience', default: false },
+                { title: 'Qualification', default: false },
+                { title: 'Salary', default: false },
+                { title: 'CV Limit', default: true },
+                { title: 'Notes', default: true },
+                { title: 'Status', default: true },
+                { title: 'Action', toggleable: false },
+            ];
+
+            const COLUMN_VISIBILITY_STORAGE_KEY = 'quality_sales_table_column_visibility_v1';
+
+            // Reads the saved per-column show/hide choices from localStorage
+            // (falling back to each column's `default`) so the layout the
+            // user picked survives page reloads/navigation.
+            function loadColumnVisibility() {
+                let stored = {};
+                try {
+                    stored = JSON.parse(localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY)) || {};
+                } catch (e) {
+                    stored = {};
+                }
+
+                return columnConfig.map(function(col, index) {
+                    if (col.toggleable === false) {
+                        return true;
+                    }
+                    return stored.hasOwnProperty(index) ? !!stored[index] : !!col.default;
+                });
+            }
+
+            function saveColumnVisibility(visibilityByIndex) {
+                const toStore = {};
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        toStore[index] = !!visibilityByIndex[index];
+                    }
+                });
+                localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(toStore));
+            }
+
+            let columnVisibility = loadColumnVisibility();
+
+            // Build the checkbox list inside the "Columns" dropdown from
+            // columnConfig, reflecting the currently active visibility state.
+            function renderColumnsDropdown() {
+                const $list = $('#columnsList');
+                $list.empty();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable === false) {
+                        return;
+                    }
+
+                    const checked = columnVisibility[index] ? 'checked' : '';
+                    $list.append(`
+                        <div class="form-check">
+                            <input class="form-check-input column-toggle" type="checkbox"
+                                id="column_${index}" data-column-index="${index}" ${checked}>
+                            <label class="form-check-label" for="column_${index}">${col.title}</label>
+                        </div>
+                    `);
+                });
+            }
+
+            renderColumnsDropdown();
+
+            // Column indices currently hidden, used as a `columnDefs` target
+            // so DataTable() renders with the right columns hidden from the
+            // very first draw (no flash of columns that then disappear).
+            function getHiddenColumnIndices() {
+                return columnVisibility
+                    .map(function(visible, index) { return visible ? null : index; })
+                    .filter(function(index) { return index !== null; });
             }
 
             // Initialize DataTable with server-side processing
@@ -315,6 +475,7 @@
                         d.category_filter = currentCategoryFilters;  // Send the current filter value as a parameter
                         d.title_filter = currentTitleFilters;  // Send the current filter value as a parameter
                         d.office_filter = currentOfficeFilters;  // Send the current filter value as a parameter
+                        d.source_filter = currentSourceFilters;  // Send the current filter value as a parameter
                         d.cv_limit_filter = currentFilterCvLimit;  // Send the current filter value as a parameter
                     },
                     beforeSend: function() {
@@ -331,9 +492,10 @@
                     { data: 'updated_at', name: 'sales.updated_at' },
                     { data: 'office_name', name: 'offices.office_name'},
                     { data: 'unit_name', name: 'units.unit_name'  },
+                    { data: 'sale_postcode', name: 'sales.sale_postcode' },
                     { data: 'job_title', name: 'job_titles.name' },
                     { data: 'job_category', name: 'job_categories.name' },
-                    { data: 'sale_postcode', name: 'sales.sale_postcode' },
+                    { data: 'job_source', name: 'job_sources.name' },
                     { data: 'job_details', name: 'job_details', orderable: false },
                     { data: 'experience', name: 'sales.experience' },
                     { data: 'qualification', name: 'sales.qualification' },
@@ -351,13 +513,7 @@
                         }
                     },
                     {
-                        targets: 11,  // Column index for 'job_details'
-                        createdCell: function (td, cellData, rowData, row, col) {
-                            $(td).css('text-align', 'center');  // Center the text in this column
-                        }
-                    },
-                    {
-                        targets: 14,  // Column index for 'job_details'
+                        targets: 9,  // Column index for 'job_details'
                         createdCell: function (td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center');  // Center the text in this column
                         }
@@ -367,12 +523,34 @@
                         createdCell: function (td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center');  // Center the text in this column
                         }
+                    },
+                    {
+                        targets: 16,  // Column index for 'job_details'
+                        createdCell: function (td, cellData, rowData, row, col) {
+                            $(td).css('text-align', 'center');  // Center the text in this column
+                        }
+                    },
+                    {
+                        // Applies the saved/default column visibility (see columnConfig
+                        // above) on the very first draw, so nothing "flashes" visible
+                        // before being hidden.
+                        targets: getHiddenColumnIndices(),
+                        visible: false
                     }
                 ],
                 rowId: function(data) {
                     return 'row_' + data.id; // Assign a unique ID to each row using the 'id' field from the data
                 },
-                dom: 'lrtip',  // Change the order to 'filter' (f), 'length' (l), 'table' (r), 'pagination' (p), and 'information' (i)
+                // 'l' (length control) wrapped in its own flex row so the "Columns" button
+                // (moved here in initComplete below) lines up beside it instead of stacking
+                // on its own line.
+                dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l>rtip',
+                initComplete: function() {
+                    const api = this.api();
+                    $(api.table().container())
+                        .find('.dataTables_length')
+                        .after($('#columnsToolbar'));
+                },
                 drawCallback: function (settings) {
                     const api = this.api();
                     const pagination = $(api.table().container()).find('.dataTables_paginate');
@@ -448,6 +626,63 @@
                     pagination.html(paginationHtml);
                 },
             });
+
+            // ---------------------------------------------------------------
+            // Column visibility dropdown handlers
+            // ---------------------------------------------------------------
+
+            // Individual column checkbox toggle
+            $(document).on('change', '.column-toggle', function() {
+                const index = parseInt($(this).data('column-index'), 10);
+                const visible = $(this).is(':checked');
+
+                columnVisibility[index] = visible;
+                table.column(index).visible(visible);
+                saveColumnVisibility(columnVisibility);
+            });
+
+            // "Show All" — makes every toggleable column visible
+            $('#columnsSelectAll').on('click', function(e) {
+                e.preventDefault();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        columnVisibility[index] = true;
+                    }
+                });
+
+                table.columns().every(function() {
+                    const index = this.index();
+                    if (columnConfig[index].toggleable !== false) {
+                        this.visible(true);
+                    }
+                });
+
+                saveColumnVisibility(columnVisibility);
+                renderColumnsDropdown();
+            });
+
+            // "Reset Default" — restores each column to its columnConfig default
+            $('#columnsResetDefault').on('click', function(e) {
+                e.preventDefault();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        columnVisibility[index] = !!col.default;
+                    }
+                });
+
+                table.columns().every(function() {
+                    const index = this.index();
+                    if (columnConfig[index].toggleable !== false) {
+                        this.visible(columnVisibility[index]);
+                    }
+                });
+
+                saveColumnVisibility(columnVisibility);
+                renderColumnsDropdown();
+            });
+
             // Search logic helper
             function handleCustomSearch() {
                 let searchValue = $('#customSearchInput').val().trim();
@@ -521,103 +756,196 @@
                 $('#showFilterStatus').html(formattedText);
                 table.ajax.reload(); // Reload with updated status filter
             });
-            /*** Category filter handler ***/
-            $('.category-filter').on('change', function() {
-                const id = $(this).data('category-id');
-                const total = $('.category-filter').not('[data-category-id=""]').length;
-                const checked = $('.category-filter:checked').not('[data-category-id=""]').length;
+            function syncCheckboxFilterUI(options) {
+                const {
+                    filterClass,
+                    excludeAttr,
+                    labelSelector,
+                    emptyLabel,
+                    selectedLabel,
+                    toggleContainer,
+                    getSelectedIds
+                } = options;
 
-                if (id === '' || id === undefined) {
-                    if (this.checked) {
-                        $('.category-filter').not(this).prop('checked', false);
-                        currentCategoryFilters = [];
+                const $items = $(filterClass).not(excludeAttr);
+                const total = $items.length;
+                const checked = $items.filter(':checked').length;
+
+                $(labelSelector).text(checked > 0 ? `${selectedLabel} (${checked})` : emptyLabel);
+
+                const $container = $(toggleContainer);
+                $container.find('.filter-select-all').toggle(checked < total);
+                $container.find('.filter-deselect-all').toggle(checked > 0);
+
+                return getSelectedIds();
+            }
+
+            function getCheckboxFilterConfig(filterClass) {
+                const configs = {
+                    '.office-filter': {
+                        filterClass: '.office-filter',
+                        idData: 'office-id',
+                        excludeAttr: '[data-office-id=""]',
+                        labelSelector: '#showFilterOffice',
+                        emptyLabel: 'All Head Office',
+                        selectedLabel: 'Selected Office',
+                        toggleContainer: '#officeToggleContainer',
+                        getSelected: () => currentOfficeFilters,
+                        setSelected: (ids) => { currentOfficeFilters = ids; }
+                    },
+                    '.category-filter': {
+                        filterClass: '.category-filter',
+                        idData: 'category-id',
+                        excludeAttr: '[data-category-id=""]',
+                        labelSelector: '#showFilterCategory',
+                        emptyLabel: 'All Categories',
+                        selectedLabel: 'Selected Categories',
+                        toggleContainer: '#categoryToggleContainer',
+                        getSelected: () => currentCategoryFilters,
+                        setSelected: (ids) => { currentCategoryFilters = ids; }
+                    },
+                    '.title-filter': {
+                        filterClass: '.title-filter',
+                        idData: 'title-id',
+                        excludeAttr: '[data-title-id=""]',
+                        labelSelector: '#showFilterTitle',
+                        emptyLabel: 'All Titles',
+                        selectedLabel: 'Selected Titles',
+                        toggleContainer: '#titleToggleContainer',
+                        getSelected: () => currentTitleFilters,
+                        setSelected: (ids) => { currentTitleFilters = ids; }
+                    },
+                    '.source-filter': {
+                        filterClass: '.source-filter',
+                        idData: 'source-id',
+                        excludeAttr: '[data-source-id=""]',
+                        labelSelector: '#showFilterSource',
+                        emptyLabel: 'All Sources',
+                        selectedLabel: 'Selected Sources',
+                        toggleContainer: '#sourceToggleContainer',
+                        getSelected: () => currentSourceFilters,
+                        setSelected: (ids) => { currentSourceFilters = ids; }
                     }
-                } else {
-                    if (this.checked) {
-                        $('.category-filter[data-category-id=""]').prop('checked', false);
-                        if (!currentCategoryFilters.includes(id)) currentCategoryFilters.push(id);
-                    } else {
-                        currentCategoryFilters = currentCategoryFilters.filter(x => x !== id);
-                    }
+                };
+
+                return configs[filterClass] || null;
+            }
+
+            function applyCheckboxFilterChange($checkbox, config) {
+                if (!config) {
+                    return;
                 }
 
-                $('#showFilterCategory').text(checked > 0 ? `Selected Category (${checked})` : 'All Category');
-                
-                const container = $('#categoryToggleContainer');
-                container.find('.filter-select-all').toggle(checked < total);
-                container.find('.filter-deselect-all').toggle(checked > 0);
+                const id = $checkbox.data(config.idData);
+
+                if (id === '' || id === undefined) {
+                    config.setSelected([]);
+                    $(config.filterClass).not($checkbox).prop('checked', false);
+                } else if ($checkbox.prop('checked')) {
+                    const selected = config.getSelected();
+                    if (!selected.includes(id)) {
+                        selected.push(id);
+                    }
+                    config.setSelected(selected);
+                    $(config.filterClass + config.excludeAttr).prop('checked', false);
+                } else {
+                    config.setSelected(config.getSelected().filter(x => x !== id));
+                }
+
+                config.setSelected(syncCheckboxFilterUI({
+                    filterClass: config.filterClass,
+                    excludeAttr: config.excludeAttr,
+                    labelSelector: config.labelSelector,
+                    emptyLabel: config.emptyLabel,
+                    selectedLabel: config.selectedLabel,
+                    toggleContainer: config.toggleContainer,
+                    getSelectedIds: () => $(config.filterClass + ':checked')
+                        .not(config.excludeAttr)
+                        .map(function() { return $(this).data(config.idData); })
+                        .get()
+                }));
 
                 table.ajax.reload();
+            }
+
+            /*** Category filter handler ***/
+            $('.category-filter').on('change', function() {
+                applyCheckboxFilterChange($(this), getCheckboxFilterConfig('.category-filter'));
             });
 
             /*** Title Filter Handler ***/
             $('.title-filter').on('change', function() {
-                const id = $(this).data('title-id');
-                const total = $('.title-filter').not('[data-title-id=""]').length;
-                const checked = $('.title-filter:checked').not('[data-title-id=""]').length;
-
-                if (id === '' || id === undefined) {
-                    if (this.checked) {
-                        $('.title-filter').not(this).prop('checked', false);
-                        currentTitleFilters = [];
-                    }
-                } else {
-                    if (this.checked) {
-                        $('.title-filter[data-title-id=""]').prop('checked', false);
-                        if (!currentTitleFilters.includes(id)) currentTitleFilters.push(id);
-                    } else {
-                        currentTitleFilters = currentTitleFilters.filter(x => x !== id);
-                    }
-                }
-
-                $('#showFilterTitle').text(checked > 0 ? `Selected Title (${checked})` : 'All Titles');
-                
-                const container = $('#titleToggleContainer');
-                container.find('.filter-select-all').toggle(checked < total);
-                container.find('.filter-deselect-all').toggle(checked > 0);
-
-                table.ajax.reload();
+                applyCheckboxFilterChange($(this), getCheckboxFilterConfig('.title-filter'));
             });
 
             /*** Office Filter Handler ***/
             $('.office-filter').on('change', function() {
-                const id = $(this).data('office-id');
-                const total = $('.office-filter').not('[data-office-id=""]').length;
-                const checked = $('.office-filter:checked').not('[data-office-id=""]').length;
+                applyCheckboxFilterChange($(this), getCheckboxFilterConfig('.office-filter'));
+            });
 
-                if (id === '' || id === undefined) {
-                    if (this.checked) {
-                        $('.office-filter').not(this).prop('checked', false);
-                        currentOfficeFilters = [];
-                    }
-                } else {
-                    if (this.checked) {
-                        $('.office-filter[data-office-id=""]').prop('checked', false);
-                        if (!currentOfficeFilters.includes(id)) currentOfficeFilters.push(id);
-                    } else {
-                        currentOfficeFilters = currentOfficeFilters.filter(x => x !== id);
-                    }
+            /*** Source Filter Handler ***/
+            $('.source-filter').on('change', function() {
+                applyCheckboxFilterChange($(this), getCheckboxFilterConfig('.source-filter'));
+            });
+
+            /*** Dropdown Select All Action ***/
+            $(document).on('click', '.filter-select-all', function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+
+                const filterClass = $(this).attr('data-target');
+                const excludeAttr = $(this).attr('data-exclude');
+                const config = getCheckboxFilterConfig(filterClass);
+                if (!config) {
+                    return;
                 }
 
-                $('#showFilterOffice').text(checked > 0 ? `Selected Office (${checked})` : 'All Head Office');
-                
-                const container = $('#officeToggleContainer');
-                container.find('.filter-select-all').toggle(checked < total);
-                container.find('.filter-deselect-all').toggle(checked > 0);
+                const $items = $(filterClass).not(excludeAttr);
+
+                $(filterClass + excludeAttr).prop('checked', false);
+                $items.prop('checked', true);
+
+                config.setSelected($items.map(function() { return $(this).data(config.idData); }).get());
+                syncCheckboxFilterUI({
+                    filterClass: filterClass,
+                    excludeAttr: config.excludeAttr,
+                    labelSelector: config.labelSelector,
+                    emptyLabel: config.emptyLabel,
+                    selectedLabel: config.selectedLabel,
+                    toggleContainer: config.toggleContainer,
+                    getSelectedIds: () => config.getSelected()
+                });
 
                 table.ajax.reload();
             });
 
-            // Handle Select All / Deselect All
-            $(document).on('click', '.filter-select-all, .filter-deselect-all', function(e) {
+            /*** Dropdown Deselect All Action ***/
+            $(document).on('click', '.filter-deselect-all', function(e) {
                 e.preventDefault();
                 e.stopPropagation();
-                const isSelectAll = $(this).hasClass('filter-select-all');
-                const targetSelector = $(this).data('target');
-                const excludeSelector = $(this).data('exclude');
-                const checkboxes = $(targetSelector).not(excludeSelector);
 
-                checkboxes.prop('checked', isSelectAll).trigger('change');
+                const filterClass = $(this).attr('data-target');
+                const excludeAttr = $(this).attr('data-exclude');
+                const config = getCheckboxFilterConfig(filterClass);
+                if (!config) {
+                    return;
+                }
+
+                $(filterClass).not(excludeAttr).prop('checked', false);
+                $(filterClass + excludeAttr).prop('checked', false);
+
+                config.setSelected([]);
+                syncCheckboxFilterUI({
+                    filterClass: filterClass,
+                    excludeAttr: config.excludeAttr,
+                    labelSelector: config.labelSelector,
+                    emptyLabel: config.emptyLabel,
+                    selectedLabel: config.selectedLabel,
+                    toggleContainer: config.toggleContainer,
+                    getSelectedIds: () => config.getSelected()
+                });
+
+                table.ajax.reload();
             });
 
             // Keep dropdown open when clicking inside its content area
@@ -649,6 +977,16 @@
         document.getElementById('officeSearchInput').addEventListener('keyup', function() {
             const searchValue = this.value.toLowerCase();
             const checkboxes = document.querySelectorAll('#officesList .form-check');
+
+            checkboxes.forEach(function(item) {
+                const label = item.querySelector('label').innerText.toLowerCase();
+                item.style.display = label.includes(searchValue) ? '' : 'none';
+            });
+        });
+
+        document.getElementById('sourceSearchInput').addEventListener('keyup', function() {
+            const searchValue = this.value.toLowerCase();
+            const checkboxes = document.querySelectorAll('#sourceList .form-check');
 
             checkboxes.forEach(function(item) {
                 const label = item.querySelector('label').innerText.toLowerCase();
@@ -988,21 +1326,20 @@
                     var landline = contact.contact_landline || 'N/A';
                     var note = contact.contact_note || '';
 
-                    // Make everything lowercase for comparison.
-                    var searchString = (
-                        name + ' ' +
-                        email + ' ' +
-                        note
-                    ).toLowerCase();
+                    // Match job_sources.name LIKE %hayaibu% (e.g. "Hayaibu Talent").
+                    var sourceName = (contact.job_source_name
+                        || (contact.job_source && contact.job_source.name)
+                        || '').toString().toLowerCase().trim();
+                    var isHayaibuSource = contact.is_hayaibu_source === true
+                        || contact.is_hayaibu_source === 1
+                        || sourceName.indexOf('hayaibu') !== -1;
 
-                    var containsHayaibu = searchString.includes('hayaibu');
-
-                    // Filtering logic
-                    if (filterType === 'kingsburry' && containsHayaibu) {
+                    // Kingsburry = non-hayaibu sources; Others = hayaibu source only.
+                    if (filterType === 'kingsburry' && isHayaibuSource) {
                         return;
                     }
 
-                    if (filterType === 'others' && !containsHayaibu) {
+                    if (filterType === 'others' && !isHayaibuSource) {
                         return;
                     }
 

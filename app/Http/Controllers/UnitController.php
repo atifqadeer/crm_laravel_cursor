@@ -70,13 +70,41 @@ class UnitController extends Controller
     }
     public function create()
     {
-        return view('units.create');
+        $offices = Office::where('status', 1)->select('id', 'office_name')->get();
+
+        $hidePrivateDataSetting = Setting::where('key', 'hide_private_data')->value('value');
+        $hidePrivateData = array_filter(
+            array_map('trim', explode(',', $hidePrivateDataSetting ?? ''))
+        );
+
+        $sourceIds = [];
+
+        if (!Gate::allows('show-private-data') && count($hidePrivateData) > 0) {
+            $sourceIds = JobSource::where('is_active', 1)
+                ->where(function ($q) use ($hidePrivateData) {
+                    foreach ($hidePrivateData as $hideName) {
+                        $q->orWhere('name', 'LIKE', '%' . $hideName . '%');
+                    }
+                })
+                ->pluck('id')
+                ->toArray();
+        }
+
+        $query = JobSource::where('is_active', 1);
+
+        if (count($sourceIds) > 0) {
+            $query->whereNotIn('id', $sourceIds);
+        }
+
+        $jobSources = $query->orderBy('name', 'asc')->get();
+
+        return view('units.create', compact('jobSources', 'offices'));
     }
     public function store(Request $request)
     {
         // Validation
         $validator = Validator::make($request->all(), [
-            'office_id' => 'required',
+            'office_id' => 'required|exists:offices,id',
             'unit_name' => 'required|string|max:255',
             'unit_postcode' => ['required', 'string', 'min:3', 'max:8', 'regex:/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d ]+$/'],
             'unit_notes' => 'required|string|max:255',
@@ -96,6 +124,9 @@ class UnitController extends Controller
 
             'contact_note' => 'nullable|array',
             'contact_note.*' => 'nullable|string',
+
+            'contact_job_source_id' => 'required|array',
+            'contact_job_source_id.*' => 'required|exists:job_sources,id',
         ]);
 
         if ($validator->fails()) {
@@ -112,6 +143,7 @@ class UnitController extends Controller
             // Get office data
             $unitData = $request->only([
                 'office_id',
+                'job_source_id',
                 'unit_name',
                 'unit_postcode',
                 'unit_website',
@@ -163,6 +195,7 @@ class UnitController extends Controller
             // Iterate through each contact provided in the request
             foreach ($request->input('contact_name') as $index => $contactName) {
                 // Create contact data for each contact in the array
+                $contactJobSourceId = $request->input("contact_job_source_id.{$index}");
                 $contactData = [
                     'contact_name' => $contactName,
                     'contact_email' => $request->input('contact_email')[$index],
@@ -171,6 +204,9 @@ class UnitController extends Controller
                         ? preg_replace('/[^0-9]/', '', $request->input('contact_landline')[$index])
                         : null,
                     'contact_note' => $request->input('contact_note')[$index] ?? null,
+                    'job_source_id' => $contactJobSourceId !== null && $contactJobSourceId !== ''
+                        ? (int) $contactJobSourceId
+                        : null,
                 ];
 
                 // Create each contact and associate it with the office
@@ -455,7 +491,6 @@ class UnitController extends Controller
             ])
             ->make(true);
     }
-
     public function storeUnitShortNotes(Request $request)
     {
         $user = Auth::user();
@@ -547,7 +582,6 @@ class UnitController extends Controller
             ], 500);
         }
     }
-
     public function unitDetails($id)
     {
         $unit = Unit::findOrFail($id);
@@ -570,6 +604,8 @@ class UnitController extends Controller
             array_map('trim', explode(',', $hidePrivateDataSetting ?? ''))
         );
 
+        $sourceIds = [];
+
         if (!Gate::allows('show-private-data') && count($hidePrivateData) > 0) {
             $contactsQuery->where(function ($sub) use ($hidePrivateData) {
                 foreach ($hidePrivateData as $hideValue) {
@@ -589,19 +625,36 @@ class UnitController extends Controller
                     });
                 }
             });
+
+            $sourceIds = JobSource::where('is_active', 1)
+                ->where(function ($q) use ($hidePrivateData) {
+                    foreach ($hidePrivateData as $hideName) {
+                        $q->orWhere('name', 'LIKE', '%' . $hideName . '%');
+                    }
+                })
+                ->pluck('id')
+                ->toArray();
         }
+
+        $query = JobSource::where('is_active', 1);
+
+        if (count($sourceIds) > 0) {
+            $query->whereNotIn('id', $sourceIds);
+        }
+
+        $jobSources = $query->orderBy('name', 'asc')->get();
 
         $contacts = $contactsQuery->get();
 
         $redirect_url = $request->input('redirect_url', 'units.list');
 
-        return view('units.edit', compact('offices', 'unit', 'contacts', 'redirect_url'));
+        return view('units.edit', compact('offices', 'unit', 'contacts', 'redirect_url', 'jobSources'));
     }
     public function update(Request $request)
     {
         // Validation
         $validator = Validator::make($request->all(), [
-            'office_id' => 'required',
+            'office_id' => 'required|exists:offices,id',
             'unit_name' => 'required|string|max:255',
             'unit_postcode' => ['required', 'string', 'min:3', 'max:8', 'regex:/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d ]+$/'],
             'unit_notes' => 'required|string|max:255',
@@ -621,6 +674,9 @@ class UnitController extends Controller
 
             'contact_note' => 'nullable|array',
             'contact_note.*' => 'nullable|string',
+
+            'contact_job_source_id' => 'required|array',
+            'contact_job_source_id.*' => 'required|exists:job_sources,id',
         ]);
 
         if ($validator->fails()) {
@@ -636,6 +692,7 @@ class UnitController extends Controller
             // Get office data
             $unitData = $request->only([
                 'office_id',
+                'job_source_id',
                 'unit_name',
                 'unit_postcode',
                 'unit_website',
@@ -720,6 +777,7 @@ class UnitController extends Controller
             // Iterate through each contact provided in the request
             foreach ($request->input('contact_name') as $index => $contactName) {
                 // Create contact data for each contact in the array
+                $contactJobSourceId = $request->input("contact_job_source_id.{$index}");
                 $contactData = [
                     'contact_name' => $contactName,
                     'contact_email' => $request->input('contact_email')[$index],
@@ -728,6 +786,9 @@ class UnitController extends Controller
                         ? preg_replace('/[^0-9]/', '', $request->input('contact_landline')[$index])
                         : null,
                     'contact_note' => $request->input('contact_note')[$index] ?? null,
+                    'job_source_id' => $contactJobSourceId !== null && $contactJobSourceId !== ''
+                        ? (int) $contactJobSourceId
+                        : null,
                 ];
 
                 // Create each contact and associate it with the office

@@ -42,7 +42,7 @@
                                         <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button"
                                             id="dropdownMenuButton1" data-bs-toggle="dropdown" aria-expanded="false">
                                             <i class="ri-filter-line me-1"></i> <span id="showFilterCategory">All
-                                                Category</span>
+                                                Categories</span>
                                         </button>
 
                                         <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton1">
@@ -60,6 +60,12 @@
                                             </div>
                                             <!-- Scrollable checkbox list -->
                                             <div id="categoryList">
+
+                                                <div class="form-check">
+                                                    <input class="form-check-input category-filter" type="checkbox" value=""
+                                                        id="all-categories" data-category-id="">
+                                                    <label class="form-check-label" for="all-categories">All Categories</label>
+                                                </div>
 
                                                 @foreach ($jobCategories as $category)
                                                     <div class="form-check">
@@ -679,8 +685,8 @@
                 const total = $('.category-filter').not('[data-category-id=""]').length;
                 const checked = $('.category-filter:checked').not('[data-category-id=""]').length;
 
-                $('#showFilterCategory').text(checked > 0 ? `Selected Category (${checked})` :
-                    'All Category');
+                $('#showFilterCategory').text(checked > 0 ? `Selected Categories (${checked})` :
+                    'All Categories');
 
                 const container = $('#categoryToggleContainer');
                 container.find('.filter-select-all').toggle(checked < total);

@@ -575,7 +575,8 @@
                 ],
                 columnDefs: [
                     {
-                        targets: [8, 9, 12, 15, 16], // job_details, office_name, sale_postcode, notes_detail, sale_source_name
+                        // job_details, office_name, sale_postcode, sale_source_name, notes_detail
+                        targets: [9, 10, 12, 13],
                         createdCell: function (td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center');
                         }
@@ -714,9 +715,12 @@
                 $('#showFilterTab').html(formattedText);
                 showLoader();
 
-                // Toggle column visibility
-                table.column(3).visible(formattedText === 'Confirmation');
-                table.column(14).visible(formattedText === 'Paid');
+                // Toggle column visibility by name (indexes shifted after Job Source was added).
+                // 3 = schedule_date, 14 = notes_detail, 15 = paid_status
+                table.column('interviews.schedule_date:name').visible(formattedText === 'Confirmation');
+                table.column('applicants.paid_status:name').visible(formattedText === 'Paid');
+                // Notes must stay visible on every tab
+                table.column('notes_detail:name').visible(true);
 
                 // Toggle UI elements
                 $('#openToPaid').toggle(formattedText === 'Paid');
@@ -5447,16 +5451,27 @@
 
         /** Function to show the manager details modal */
         function viewManagerDetails(id) {
-            const modalID = 'viewManagerDetailsModal-' + id;
-            
+            const unitId = parseInt(id, 10) || 0;
+            if (unitId <= 0) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'No unit linked',
+                    text: 'This sale does not have a unit, so manager details are unavailable.',
+                });
+                return;
+            }
+
+            const modalID = 'viewManagerDetailsModal-' + unitId;
+            window.managerDetailsModalID = modalID;
+
             // Create modal if it doesn't exist
             if ($('#' + modalID).length === 0) {
                 $('body').append(`
-                    <div class="modal fade" id="${modalID}" tabindex="-1" aria-labelledby="viewManagerDetailsModalLabel-${id}">
-                        <div class="modal-dialog modal-dialog-scrollable modal-dialog-top">
+                    <div class="modal fade" id="${modalID}" tabindex="-1" aria-labelledby="viewManagerDetailsModalLabel-${unitId}">
+                        <div class="modal-dialog modal-dialog-scrollable modal-dialog-top modal-lg">
                             <div class="modal-content">
                                 <div class="modal-header">
-                                    <h5 class="modal-title" id="viewManagerDetailsModalLabel-${id}">Manager Details</h5>
+                                    <h5 class="modal-title" id="viewManagerDetailsModalLabel-${unitId}">Manager Details</h5>
                                     <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                                 </div>
                                 <div class="modal-body modal-body-text-left">
@@ -5473,53 +5488,74 @@
                         </div>
                     </div>
                 `);
+            } else {
+                // Reset to loading state when reopening an existing modal
+                $('#' + modalID + ' .modal-body').html(`
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                `);
             }
-            
+
             // Show modal immediately with loading state
             $('#' + modalID).modal('show');
-            
+
             // Make AJAX call
             $.ajax({
                 url: '{{ route("getModuleContacts") }}',
                 type: 'GET',
-                data: { 
-                    id: id,
+                data: {
+                    id: unitId,
                     module: 'Unit'
                 },
                 success: function(response) {
-                    window.managerContacts = response.data;
-
+                    window.managerContacts = response.data || [];
                     renderContacts('all');
                 },
-                error: function(xhr, status, error) {
-
+                error: function(xhr) {
                     let message = 'Something went wrong.';
 
                     if (xhr.responseJSON && xhr.responseJSON.message) {
                         message = xhr.responseJSON.message;
                     }
 
-                    $('#' + modalId + ' .modal-body').html(
+                    $('#' + modalID + ' .modal-body').html(
                         '<p class="text-danger">' + message + '</p>'
                     );
-
                 }
             });
         }
 
+        // Contact filter radios (All / Kingsburry / Others) are only for users
+        // who can see private data — same Gate used by getModuleContacts().
+        const canShowPrivateData = @json(auth()->user()?->can('show-private-data') ?? false);
+
         $(document).on('change', 'input[name="contact_filter"]', function() {
-
+            if (!canShowPrivateData) {
+                return;
+            }
             renderContacts($(this).val());
-
         });
 
         function renderContacts(filterType) {
-
             var contacts = window.managerContacts || [];
+            var modalID = window.managerDetailsModalID;
+            if (!modalID) {
+                return;
+            }
+
+            // Without show-private-data permission, always show the full (already
+            // server-filtered) list and never render the contact_filter radios.
+            if (!canShowPrivateData) {
+                filterType = 'all';
+            }
+
             var contactHtml = '';
 
-            // Filter buttons
-            contactHtml += `
+            if (canShowPrivateData) {
+                contactHtml += `
                     <div class="mb-3">
                         <label class="me-3">
                             <input type="radio" name="contact_filter" value="all" ${filterType === 'all' ? 'checked' : ''}>
@@ -5538,37 +5574,37 @@
                     </div>
                     <hr>
                 `;
+            }
 
             if (contacts.length === 0) {
-
                 contactHtml += '<p>No records found.</p>';
-
             } else {
-
                 contacts.forEach(function(contact) {
-
                     var name = contact.contact_name || '';
                     var email = contact.contact_email || '';
                     var phone = contact.contact_phone || 'N/A';
                     var landline = contact.contact_landline || 'N/A';
                     var note = contact.contact_note || '';
 
-                    // Make everything lowercase for comparison.
-                    var searchString = (
-                        name + ' ' +
-                        email + ' ' +
-                        note
-                    ).toLowerCase();
+                    if (canShowPrivateData) {
+                        // Match job_sources.name LIKE %hayaibu% (e.g. "Hayaibu Talent").
+                        // Do NOT use === '%hayaibu%' — % is SQL syntax, not a JS string match.
+                        var sourceName = (contact.job_source_name
+                            || (contact.job_source && contact.job_source.name)
+                            || '').toString().toLowerCase().trim();
+                            
+                        var isHayaibuSource = contact.is_hayaibu_source === true
+                            || contact.is_hayaibu_source === 1
+                            || sourceName.indexOf('hayaibu') !== -1;
 
-                    var containsHayaibu = searchString.includes('hayaibu');
+                        // Kingsburry = non-hayaibu sources; Others = hayaibu source only.
+                        if (filterType === 'kingsburry' && isHayaibuSource) {
+                            return;
+                        }
 
-                    // Filtering logic
-                    if (filterType === 'kingsburry' && containsHayaibu) {
-                        return;
-                    }
-
-                    if (filterType === 'others' && !containsHayaibu) {
-                        return;
+                        if (filterType === 'others' && !isHayaibuSource) {
+                            return;
+                        }
                     }
 
                     contactHtml += `
@@ -5582,10 +5618,9 @@
                 <hr>
             `;
                 });
-
             }
 
-            $('#viewManagerDetailsModal .modal-body').html(contactHtml);
+            $('#' + modalID + ' .modal-body').html(contactHtml);
         }
 
         /** Function for make open to all applicants */

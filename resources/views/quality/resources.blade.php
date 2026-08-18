@@ -156,6 +156,27 @@
         <div class="col-xl-12">
             <div class="card">
                 <div class="card-body p-3">
+                    <!-- Columns Visibility Dropdown — moved via JS (initComplete) into the same
+                         flex row as DataTables' own "Show X entries" length control below. -->
+                    <div id="columnsToolbar" class="dropdown d-inline">
+                        <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button"
+                            id="dropdownMenuColumns" data-bs-toggle="dropdown" aria-expanded="false">
+                            <i class="ri-layout-column-line me-1"></i> Columns
+                        </button>
+                        <div class="dropdown-menu filter-dropdowns p-2" aria-labelledby="dropdownMenuColumns"
+                            style="min-width: 230px;">
+                            <div class="d-flex justify-content-between align-items-center px-1 mb-2">
+                                <a href="#" id="columnsSelectAll" class="text-primary small fw-semibold">Show
+                                    All</a>
+                                <a href="#" id="columnsResetDefault"
+                                    class="text-secondary small fw-semibold">Reset Default</a>
+                            </div>
+                            <div id="columnsList" style="max-height: 280px; overflow-y: auto;">
+                                {{-- Checkbox per toggleable column is injected by JS from columnConfig,
+                                     kept in sync with the <thead> below by column index. --}}
+                            </div>
+                        </div>
+                    </div>
                     <div class="table-responsive">
                         <table id="applicants_table" class="table align-middle mb-3">
                             <thead class="bg-light-subtle">
@@ -264,6 +285,97 @@
             // Function to show loader
             function showLoader() {
                 $('#applicants_table tbody').empty().append(loadingRow);
+            }
+
+            // ---------------------------------------------------------------
+            // Column visibility (show/hide columns)
+            // ---------------------------------------------------------------
+            // Index here MUST line up with both the <thead> markup above and
+            // the `columns:` array passed to DataTable() below. `toggleable:
+            // false` marks columns that are always shown and excluded from
+            // the "Columns" dropdown (row index + action menu).
+            const columnConfig = [
+                { title: '#', toggleable: false },
+                { title: 'Date', default: true },
+                { title: 'Sent By', default: true },
+                { title: 'Applicant Name', default: true },
+                { title: 'Title', default: true },
+                { title: 'Category', default: true },
+                { title: 'PostCode (Applicant)', default: true },
+                { title: 'Phone / Landline', default: false },
+                { title: 'Applicant Resume', default: true },
+                { title: 'CRM Resume', default: false },
+                { title: 'Head Office', default: false },
+                { title: 'Unit', default: false },
+                { title: 'PostCode (Sale)', default: false },
+                { title: 'Notes', default: true },
+                { title: 'Action', toggleable: false },
+            ];
+
+            const COLUMN_VISIBILITY_STORAGE_KEY = 'quality_resources_table_column_visibility_v1';
+
+            // Reads the saved per-column show/hide choices from localStorage
+            // (falling back to each column's `default`) so the layout the
+            // user picked survives page reloads/navigation.
+            function loadColumnVisibility() {
+                let stored = {};
+                try {
+                    stored = JSON.parse(localStorage.getItem(COLUMN_VISIBILITY_STORAGE_KEY)) || {};
+                } catch (e) {
+                    stored = {};
+                }
+
+                return columnConfig.map(function(col, index) {
+                    if (col.toggleable === false) {
+                        return true;
+                    }
+                    return stored.hasOwnProperty(index) ? !!stored[index] : !!col.default;
+                });
+            }
+
+            function saveColumnVisibility(visibilityByIndex) {
+                const toStore = {};
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        toStore[index] = !!visibilityByIndex[index];
+                    }
+                });
+                localStorage.setItem(COLUMN_VISIBILITY_STORAGE_KEY, JSON.stringify(toStore));
+            }
+
+            let columnVisibility = loadColumnVisibility();
+
+            // Build the checkbox list inside the "Columns" dropdown from
+            // columnConfig, reflecting the currently active visibility state.
+            function renderColumnsDropdown() {
+                const $list = $('#columnsList');
+                $list.empty();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable === false) {
+                        return;
+                    }
+
+                    const checked = columnVisibility[index] ? 'checked' : '';
+                    $list.append(`
+                        <div class="form-check">
+                            <input class="form-check-input column-toggle" type="checkbox"
+                                id="column_${index}" data-column-index="${index}" ${checked}>
+                            <label class="form-check-label" for="column_${index}">${col.title}</label>
+                        </div>
+                    `);
+                });
+            }
+
+            renderColumnsDropdown();
+
+            // Column indices currently hidden, used as a `columnDefs` target
+            // so DataTable() renders with the right columns hidden from the
+            // very first draw (no flash of columns that then disappear).
+            function getHiddenColumnIndices() {
+                return columnVisibility
+                    .map(function(visible, index) { return visible ? null : index; })
+                    .filter(function(index) { return index !== null; });
             }
 
             // Initialize DataTable with server-side processing
@@ -386,13 +498,29 @@
                         createdCell: function(td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center'); // Center the text in this column
                         }
+                    },
+                    {
+                        // Applies the saved/default column visibility (see columnConfig
+                        // above) on the very first draw, so nothing "flashes" visible
+                        // before being hidden.
+                        targets: getHiddenColumnIndices(),
+                        visible: false
                     }
                 ],
                 rowId: function(data) {
                     return 'row_' + data
                         .id; // Assign a unique ID to each row using the 'id' field from the data
                 },
-                dom: 'lrtip', // Change the order to 'filter' (f), 'length' (l), 'table' (r), 'pagination' (p), and 'information' (i)
+                // 'l' (length control) wrapped in its own flex row so the "Columns" button
+                // (moved here in initComplete below) lines up beside it instead of stacking
+                // on its own line.
+                dom: '<"d-flex justify-content-between align-items-center flex-wrap gap-2 mb-2"l>rtip',
+                initComplete: function() {
+                    const api = this.api();
+                    $(api.table().container())
+                        .find('.dataTables_length')
+                        .after($('#columnsToolbar'));
+                },
                 drawCallback: function(settings) {
                     const api = this.api();
                     const pagination = $(api.table().container()).find('.dataTables_paginate');
@@ -471,6 +599,62 @@
 
                     pagination.html(paginationHtml);
                 },
+            });
+
+            // ---------------------------------------------------------------
+            // Column visibility dropdown handlers
+            // ---------------------------------------------------------------
+
+            // Individual column checkbox toggle
+            $(document).on('change', '.column-toggle', function() {
+                const index = parseInt($(this).data('column-index'), 10);
+                const visible = $(this).is(':checked');
+
+                columnVisibility[index] = visible;
+                table.column(index).visible(visible);
+                saveColumnVisibility(columnVisibility);
+            });
+
+            // "Show All" — makes every toggleable column visible
+            $('#columnsSelectAll').on('click', function(e) {
+                e.preventDefault();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        columnVisibility[index] = true;
+                    }
+                });
+
+                table.columns().every(function() {
+                    const index = this.index();
+                    if (columnConfig[index].toggleable !== false) {
+                        this.visible(true);
+                    }
+                });
+
+                saveColumnVisibility(columnVisibility);
+                renderColumnsDropdown();
+            });
+
+            // "Reset Default" — restores each column to its columnConfig default
+            $('#columnsResetDefault').on('click', function(e) {
+                e.preventDefault();
+
+                columnConfig.forEach(function(col, index) {
+                    if (col.toggleable !== false) {
+                        columnVisibility[index] = !!col.default;
+                    }
+                });
+
+                table.columns().every(function() {
+                    const index = this.index();
+                    if (columnConfig[index].toggleable !== false) {
+                        this.visible(columnVisibility[index]);
+                    }
+                });
+
+                saveColumnVisibility(columnVisibility);
+                renderColumnsDropdown();
             });
 
             // Search logic helper
@@ -1035,21 +1219,20 @@
                     var landline = contact.contact_landline || 'N/A';
                     var note = contact.contact_note || '';
 
-                    // Make everything lowercase for comparison.
-                    var searchString = (
-                        name + ' ' +
-                        email + ' ' +
-                        note
-                    ).toLowerCase();
+                    // Match job_sources.name LIKE %hayaibu% (e.g. "Hayaibu Talent").
+                    var sourceName = (contact.job_source_name
+                        || (contact.job_source && contact.job_source.name)
+                        || '').toString().toLowerCase().trim();
+                    var isHayaibuSource = contact.is_hayaibu_source === true
+                        || contact.is_hayaibu_source === 1
+                        || sourceName.indexOf('hayaibu') !== -1;
 
-                    var containsHayaibu = searchString.includes('hayaibu');
-
-                    // Filtering logic
-                    if (filterType === 'kingsburry' && containsHayaibu) {
+                    // Kingsburry = non-hayaibu sources; Others = hayaibu source only.
+                    if (filterType === 'kingsburry' && isHayaibuSource) {
                         return;
                     }
 
-                    if (filterType === 'others' && !containsHayaibu) {
+                    if (filterType === 'others' && !isHayaibuSource) {
                         return;
                     }
 
