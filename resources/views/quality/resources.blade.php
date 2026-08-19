@@ -51,7 +51,7 @@
                                     <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button"
                                         id="dropdownMenuButton1" data-bs-toggle="dropdown" aria-expanded="false">
                                         <i class="ri-filter-line me-1"></i> <span id="showFilterCategory">All
-                                            Category</span>
+                                            Categories</span>
                                     </button>
 
                                     <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton1">
@@ -74,7 +74,7 @@
                                             <div class="form-check">
                                                 <input class="form-check-input category-filter" type="checkbox"
                                                     value="" id="all-categories" data-category-id="">
-                                                <label class="form-check-label" for="all-categories">All Category</label>
+                                                <label class="form-check-label" for="all-categories">All Categories</label>
                                             </div>
 
                                             @foreach ($jobCategories as $category)
@@ -144,6 +144,48 @@
                                         </div>
                                     </div>
                                 </div>
+                                <!-- Sources Filter Dropdown -->
+                                <div class="dropdown d-inline">
+                                    <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button"
+                                        id="dropdownMenuButton10" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i class="ri-filter-line me-1"></i> <span id="showFilterSource">All Sources</span>
+                                    </button>
+
+                                    <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton10">
+                                        <!-- Search input -->
+                                        <input type="text" class="form-control mb-2" id="sourceSearchInput"
+                                            placeholder="Search Source...">
+                                        <!-- Select/Deselect All -->
+                                        <div class="d-flex justify-content-end px-1 mb-1" id="sourceToggleContainer">
+                                            <a href="#" id="sourceSelectAll"
+                                                class="filter-select-all text-primary small fw-semibold me-2"
+                                                data-target=".source-filter" data-exclude="[data-source-id='']">Select
+                                                All</a>
+                                            <a href="#" id="sourceDeselectAll"
+                                                class="filter-deselect-all text-danger small fw-semibold"
+                                                data-target=".source-filter" data-exclude="[data-source-id='']"
+                                                style="display:none">Deselect All</a>
+                                        </div>
+                                        <!-- Scrollable checkbox list -->
+                                        <div id="sourceList">
+                                            <div class="form-check">
+                                                <input class="form-check-input source-filter" type="checkbox"
+                                                    value="" id="all-sources" data-source-id="">
+                                                <label class="form-check-label" for="all-sources">All Sources</label>
+                                            </div>
+
+                                            @foreach ($jobSources as $source)
+                                                <div class="form-check">
+                                                    <input class="form-check-input source-filter" type="checkbox"
+                                                        value="{{ $source->id }}" id="source_{{ $source->id }}"
+                                                        data-source-id="{{ $source->id }}">
+                                                    <label class="form-check-label"
+                                                        for="source_{{ $source->id }}">{{ ucwords($source->name) }}</label>
+                                                </div>
+                                            @endforeach
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div><!-- end col-->
                     </div>
@@ -184,16 +226,17 @@
                                     <th>#</th>
                                     <th>Date</th>
                                     <th>Sent By</th>
-                                    <th>Applicant Name</th>
+                                    <th>Name (Applicant)</th>
+                                    <th>PostCode (Applicant)</th>
                                     <th>Title</th>
                                     <th>Category</th>
-                                    <th>PostCode</th>
                                     <th width="10%">Phone / Landline</th>
                                     <th>Applicant Resume</th>
                                     <th>CRM Resume</th>
                                     <th>Head Office</th>
                                     <th>Unit</th>
-                                    <th>PostCode</th>
+                                    <th>PostCode (Sale)</th>
+                                    <th>Source (Sale)</th>
                                     <th width="10%">Notes</th>
                                     <th>Action</th>
                                 </tr>
@@ -266,14 +309,14 @@
                 }, 1500);
             }
         });
-    </script>
-    <script>
+
         $(document).ready(function() {
             // Store the current filter in a variable
             var currentTypeFilter = '';
             var currentFilter = '';
             var currentCategoryFilters = [];
             var currentTitleFilters = [];
+            var currentSourceFilters = [];
 
             // Create loader row
             const loadingRow = `<tr><td colspan="100%" class="text-center py-4">
@@ -298,16 +341,17 @@
                 { title: '#', toggleable: false },
                 { title: 'Date', default: true },
                 { title: 'Sent By', default: true },
-                { title: 'Applicant Name', default: true },
+                { title: 'Name (Applicant)', default: true },
+                { title: 'PostCode (Applicant)', default: true },
                 { title: 'Title', default: true },
                 { title: 'Category', default: true },
-                { title: 'PostCode (Applicant)', default: true },
                 { title: 'Phone / Landline', default: false },
                 { title: 'Applicant Resume', default: true },
                 { title: 'CRM Resume', default: false },
                 { title: 'Head Office', default: false },
                 { title: 'Unit', default: false },
                 { title: 'PostCode (Sale)', default: false },
+                { title: 'Source (Sale)', default: true },
                 { title: 'Notes', default: true },
                 { title: 'Action', toggleable: false },
             ];
@@ -393,6 +437,8 @@
                             currentCategoryFilters; // Send the current filter value as a parameter
                         d.title_filter =
                             currentTitleFilters; // Send the current filter value as a parameter
+                        d.source_filter =
+                            currentSourceFilters; // Send the current filter value as a parameter
 
                         // Clean up search parameter
                         if (d.search && d.search.value) {
@@ -428,16 +474,16 @@
                         name: 'applicants.applicant_name'
                     },
                     {
+                        data: 'applicant_postcode',
+                        name: 'applicants.applicant_postcode'
+                    },
+                    {
                         data: 'job_title',
                         name: 'job_titles.name'
                     },
                     {
                         data: 'job_category',
                         name: 'job_categories.name'
-                    },
-                    {
-                        data: 'applicant_postcode',
-                        name: 'applicants.applicant_postcode'
                     },
                     {
                         data: 'applicantPhone',
@@ -469,6 +515,10 @@
                         name: 'sales.sale_postcode'
                     },
                     {
+                        data: 'sale_job_source',
+                        name: 'sale_job_sources.name'
+                    },
+                    {
                         data: 'notes_detail',
                         name: 'notes_detail',
                         orderable: false,
@@ -494,7 +544,13 @@
                         }
                     },
                     {
-                        targets: 14, // Column index for 'job_details'
+                        targets: 13, // Column index for 'job_details'
+                        createdCell: function(td, cellData, rowData, row, col) {
+                            $(td).css('text-align', 'center'); // Center the text in this column
+                        }
+                    },
+                    {
+                        targets: 15, // Column index for 'job_details'
                         createdCell: function(td, cellData, rowData, row, col) {
                             $(td).css('text-align', 'center'); // Center the text in this column
                         }
@@ -785,6 +841,34 @@
                 table.ajax.reload();
             });
 
+            /*** Source Filter Handler ***/
+            $('.source-filter').on('change', function() {
+                const id = $(this).data('source-id');
+
+                if (id === '' || id === undefined) {
+                    currentSourceFilters = [];
+                    $('.source-filter').not(this).prop('checked', false);
+                } else {
+                    if (this.checked) {
+                        currentSourceFilters.push(id);
+                        $('.source-filter[data-source-id=""]').prop('checked', false);
+                    } else {
+                        currentSourceFilters = currentSourceFilters.filter(x => x !== id);
+                    }
+                }
+
+                const total = $('.source-filter').not('[data-source-id=""]').length;
+                const checked = $('.source-filter:checked').not('[data-source-id=""]').length;
+
+                $('#showFilterSource').text(checked > 0 ? `Selected Sources (${checked})` : 'All Sources');
+
+                const container = $('#sourceToggleContainer');
+                container.find('.filter-select-all').toggle(checked < total);
+                container.find('.filter-deselect-all').toggle(checked > 0);
+
+                table.ajax.reload();
+            });
+
             /*** Dropdown Select All Action ***/
             $(document).on('click', '.filter-select-all', function(e) {
                 e.preventDefault();
@@ -825,6 +909,16 @@
         document.getElementById('titleSearchInput').addEventListener('keyup', function() {
             const searchValue = this.value.toLowerCase();
             const checkboxes = document.querySelectorAll('#titleList .form-check');
+
+            checkboxes.forEach(function(item) {
+                const label = item.querySelector('label').innerText.toLowerCase();
+                item.style.display = label.includes(searchValue) ? '' : 'none';
+            });
+        });
+
+        document.getElementById('sourceSearchInput').addEventListener('keyup', function() {
+            const searchValue = this.value.toLowerCase();
+            const checkboxes = document.querySelectorAll('#sourceList .form-check');
 
             checkboxes.forEach(function(item) {
                 const label = item.querySelector('label').innerText.toLowerCase();
@@ -1104,88 +1198,113 @@
             });
         }
 
-        // Function to show the notes modal
+        /** Function to show the manager details modal */
         function viewManagerDetails(id) {
-            const modalId = 'viewManagerDetailsModal' + id;
-
-            // Add modal only once
-            if ($(`#${modalId}`).length === 0) {
-                $('body').append(
-                    '<div class="modal fade" id="' + modalId + '" tabindex="-1" aria-labelledby="' + modalId +
-                    'Label">' +
-                    '<div class="modal-dialog modal-dialog-scrollable modal-dialog-top">' +
-                    '<div class="modal-content">' +
-                    '<div class="modal-header">' +
-                    '<h5 class="modal-title" id="' + modalId + 'Label">Manager Details</h5>' +
-                    '<button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>' +
-                    '</div>' +
-                    '<div class="modal-body text-center">' +
-                    '<!-- Loader shown by default -->' +
-                    '<div class="spinner-border text-primary" role="status">' +
-                    '<span class="visually-hidden">Loading...</span>' +
-                    '</div>' +
-                    '</div>' +
-                    '<div class="modal-footer">' +
-                    '<button type="button" class="btn btn-dark" data-bs-dismiss="modal">Close</button>' +
-                    '</div>' +
-                    '</div>' +
-                    '</div>' +
-                    '</div>'
-                );
+            const unitId = parseInt(id, 10) || 0;
+            if (unitId <= 0) {
+                Swal.fire({
+                    icon: 'warning',
+                    title: 'No unit linked',
+                    text: 'This sale does not have a unit, so manager details are unavailable.',
+                });
+                return;
             }
 
-            // Show the modal and keep loader visible until data is loaded
-            $('#' + modalId).modal('show');
-            $('#' + modalId + ' .modal-body').html(
-                '<div class="text-center py-4">' +
-                '<div class="spinner-border text-dark" role="status">' +
-                '<span class="visually-hidden">Loading...</span>' +
-                '</div>' +
-                '</div>'
-            );
+            const modalID = 'viewManagerDetailsModal-' + unitId;
+            window.managerDetailsModalID = modalID;
 
-            // AJAX request to fetch manager details
+            // Create modal if it doesn't exist
+            if ($('#' + modalID).length === 0) {
+                $('body').append(`
+                    <div class="modal fade" id="${modalID}" tabindex="-1" aria-labelledby="viewManagerDetailsModalLabel-${unitId}">
+                        <div class="modal-dialog modal-dialog-scrollable modal-dialog-top modal-lg">
+                            <div class="modal-content">
+                                <div class="modal-header">
+                                    <h5 class="modal-title" id="viewManagerDetailsModalLabel-${unitId}">Manager Details</h5>
+                                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                                </div>
+                                <div class="modal-body modal-body-text-left">
+                                    <div class="text-center py-3">
+                                        <div class="spinner-border text-primary" role="status">
+                                            <span class="visually-hidden">Loading...</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-dark" data-bs-dismiss="modal">Close</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `);
+            } else {
+                // Reset to loading state when reopening an existing modal
+                $('#' + modalID + ' .modal-body').html(`
+                    <div class="text-center py-3">
+                        <div class="spinner-border text-primary" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                `);
+            }
+
+            // Show modal immediately with loading state
+            $('#' + modalID).modal('show');
+
+            // Make AJAX call
             $.ajax({
-                url: '{{ route('getModuleContacts') }}',
+                url: '{{ route("getModuleContacts") }}',
                 type: 'GET',
                 data: {
-                    id: id,
+                    id: unitId,
                     module: 'Unit'
                 },
                 success: function(response) {
-                    window.managerContacts = response.data;
-
+                    window.managerContacts = response.data || [];
                     renderContacts('all');
                 },
-                error: function(xhr, status, error) {
-
+                error: function(xhr) {
                     let message = 'Something went wrong.';
 
                     if (xhr.responseJSON && xhr.responseJSON.message) {
                         message = xhr.responseJSON.message;
                     }
 
-                    $('#' + modalId + ' .modal-body').html(
+                    $('#' + modalID + ' .modal-body').html(
                         '<p class="text-danger">' + message + '</p>'
                     );
-
                 }
             });
         }
 
+        // Contact filter radios (All / Kingsburry / Others) are only for users
+        // who can see private data — same Gate used by getModuleContacts().
+        const canShowPrivateData = @json(auth()->user()?->can('show-private-data') ?? false);
+
         $(document).on('change', 'input[name="contact_filter"]', function() {
-
+            if (!canShowPrivateData) {
+                return;
+            }
             renderContacts($(this).val());
-
         });
 
         function renderContacts(filterType) {
-
             var contacts = window.managerContacts || [];
+            var modalID = window.managerDetailsModalID;
+            if (!modalID) {
+                return;
+            }
+
+            // Without show-private-data permission, always show the full (already
+            // server-filtered) list and never render the contact_filter radios.
+            if (!canShowPrivateData) {
+                filterType = 'all';
+            }
+
             var contactHtml = '';
 
-            // Filter buttons
-            contactHtml += `
+            if (canShowPrivateData) {
+                contactHtml += `
                     <div class="mb-3">
                         <label class="me-3">
                             <input type="radio" name="contact_filter" value="all" ${filterType === 'all' ? 'checked' : ''}>
@@ -1204,36 +1323,37 @@
                     </div>
                     <hr>
                 `;
+            }
 
             if (contacts.length === 0) {
-
                 contactHtml += '<p>No records found.</p>';
-
             } else {
-
                 contacts.forEach(function(contact) {
-
                     var name = contact.contact_name || '';
                     var email = contact.contact_email || '';
                     var phone = contact.contact_phone || 'N/A';
                     var landline = contact.contact_landline || 'N/A';
                     var note = contact.contact_note || '';
 
-                    // Match job_sources.name LIKE %hayaibu% (e.g. "Hayaibu Talent").
-                    var sourceName = (contact.job_source_name
-                        || (contact.job_source && contact.job_source.name)
-                        || '').toString().toLowerCase().trim();
-                    var isHayaibuSource = contact.is_hayaibu_source === true
-                        || contact.is_hayaibu_source === 1
-                        || sourceName.indexOf('hayaibu') !== -1;
+                    if (canShowPrivateData) {
+                        // Match job_sources.name LIKE %hayaibu% (e.g. "Hayaibu Talent").
+                        // Do NOT use === '%hayaibu%' — % is SQL syntax, not a JS string match.
+                        var sourceName = (contact.job_source_name
+                            || (contact.job_source && contact.job_source.name)
+                            || '').toString().toLowerCase().trim();
+                            
+                        var isHayaibuSource = contact.is_hayaibu_source === true
+                            || contact.is_hayaibu_source === 1
+                            || sourceName.indexOf('hayaibu') !== -1;
 
-                    // Kingsburry = non-hayaibu sources; Others = hayaibu source only.
-                    if (filterType === 'kingsburry' && isHayaibuSource) {
-                        return;
-                    }
+                        // Kingsburry = non-hayaibu sources; Others = hayaibu source only.
+                        if (filterType === 'kingsburry' && isHayaibuSource) {
+                            return;
+                        }
 
-                    if (filterType === 'others' && !isHayaibuSource) {
-                        return;
+                        if (filterType === 'others' && !isHayaibuSource) {
+                            return;
+                        }
                     }
 
                     contactHtml += `
@@ -1247,10 +1367,9 @@
                 <hr>
             `;
                 });
-
             }
 
-            $('#viewManagerDetailsModal .modal-body').html(contactHtml);
+            $('#' + modalID + ' .modal-body').html(contactHtml);
         }
 
         document.addEventListener('click', function(e) {
@@ -1284,12 +1403,13 @@
                             </div>
                             <div class="modal-body">
                                 <table class="table table-bordered">
-                                    <tr><th>Sale ID</th><td>${job.sale_id}</td></tr>
+                                    <tr><th>Sale ID #</th><td>${job.sale_id}</td></tr>
                                     <tr><th>Head Office</th><td>${job.office_name}</td></tr>
                                     <tr><th>Unit Name</th><td>${job.unit_name}</td></tr>
                                     <tr><th>Postcode</th><td>${job.postcode}</td></tr>
                                     <tr><th>Job Category</th><td>${job.job_category}</td></tr>
                                     <tr><th>Job Title</th><td>${job.job_title}</td></tr>
+                                    <tr><th>Job Source</th><td>${job.job_source}</td></tr>
                                     <tr><th>Status</th><td>${job.status}</td></tr>
                                     <tr><th>Timing</th><td>${job.timing}</td></tr>
                                     <tr><th>Experience</th><td>${job.experience}</td></tr>

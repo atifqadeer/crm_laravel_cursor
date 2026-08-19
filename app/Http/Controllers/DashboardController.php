@@ -117,21 +117,14 @@ class DashboardController extends Controller
         $unitsCount = $unitQuery->count();
         $salesCount = $saleQuery->count();
 
-        // NOTE: previously this pulled every distinct applicant_id out of
-        // applicants_pivot_sales into PHP memory and bound it as a giant
-        // `WHERE id NOT IN (?, ?, ?, ... thousands ...)` list — expensive to bind,
-        // parse, and plan, and it grows slower over time as the pivot table grows.
-        // whereNotExists() compiles to a correlated `NOT EXISTS` check that uses the
-        // existing (applicant_id, sale_id) index on applicants_pivot_sales directly,
-        // with no giant parameter list required.
+        // 🧠 Optimize by getting applicant IDs that exist in pivot table once
+        $linkedApplicantIds = DB::table('applicants_pivot_sales')->distinct()->pluck('applicant_id');
+
+        // Cache those IDs in memory for all 3 queries
         $unlinkedApplicants = Applicant::query()
             ->where('status', 1)
             ->whereNull('deleted_at')
-            ->whereNotExists(function ($query) {
-                $query->select(DB::raw(1))
-                    ->from('applicants_pivot_sales')
-                    ->whereColumn('applicants_pivot_sales.applicant_id', 'applicants.id');
-            });
+            ->whereNotIn('id', $linkedApplicantIds);
 
         // Use clones to avoid re-query building overhead
         $last7DaysCount = (clone $unlinkedApplicants)
@@ -2349,41 +2342,25 @@ class DashboardController extends Controller
     ) {
         $query = Applicant::query();
 
-        // NOTE: whereHas() compiles to a correlated `WHERE EXISTS (SELECT * FROM ...
-        // WHERE applicants.id = x.applicant_id AND ...)`, which MySQL re-evaluates for
-        // every single applicant row — regardless of how few rows actually match the
-        // stage filter. With tens of thousands of applicants this was measured taking
-        // several seconds (up to ~12s for a single stage) even though the underlying
-        // history/revert_stages tables already have indexes covering these filters.
-        //
-        // whereIn('id', $nonCorrelatedSubquery) lets MySQL run the inner query once,
-        // materialize the matching (deduped) applicant ids, and semi-join against them
-        // — the cost becomes proportional to the *matching* rows, not every applicant.
         if ($historyStage) {
-            $query->whereIn('id', function ($q) use ($historyStage, $startDate, $endDate, $historyActive) {
-                $q->select('applicant_id')
-                    ->from('history')
-                    ->whereIn('sub_stage', (array)$historyStage)
+            $query->whereHas('history', function ($q) use ($historyStage, $startDate, $endDate, $historyActive) {
+                $q->whereIn('sub_stage', (array)$historyStage)
                     ->when($historyActive !== null, fn($q2) => $q2->where('status', $historyActive))
                     ->when($startDate && $endDate, fn($q2) => $q2->whereBetween('created_at', [$startDate, $endDate]));
             });
         }
 
         if ($revertStage) {
-            $query->whereIn('id', function ($q) use ($revertStage, $startDate, $endDate, $revertActive) {
-                $q->select('applicant_id')
-                    ->from('revert_stages')
-                    ->whereIn('stage', (array)$revertStage)
+            $query->whereHas('revertStages', function ($q) use ($revertStage, $startDate, $endDate, $revertActive) {
+                $q->whereIn('stage', (array)$revertStage)
                     ->when($revertActive !== null, fn($q2) => $q2->where('status', $revertActive))
                     ->when($startDate && $endDate, fn($q2) => $q2->whereBetween('created_at', [$startDate, $endDate]));
             });
         }
 
         if ($crmStage) {
-            $query->whereIn('id', function ($q) use ($crmStage, $startDate, $endDate) {
-                $q->select('applicant_id')
-                    ->from('crm_notes')
-                    ->whereIn('moved_tab_to', (array)$crmStage)
+            $query->whereHas('crmNotes', function ($q) use ($crmStage, $startDate, $endDate) {
+                $q->whereIn('moved_tab_to', (array)$crmStage)
                     ->when($startDate && $endDate, fn($q2) => $q2->whereBetween('created_at', [$startDate, $endDate]));
             });
         }
@@ -2601,44 +2578,123 @@ class DashboardController extends Controller
             $config['revert_active'] ?? null
         )->with(['jobCategory', 'jobTitle', 'jobSource']);
 
+        $statsQuery = (clone $applicantQuery)->setEagerLoads([]);
+
         // Job source stats
-        $jobSourceStats = (clone $applicantQuery)
+        $jobSourceStats = (clone $statsQuery)
             ->join('job_sources', 'job_sources.id', '=', 'applicants.job_source_id')
-            ->selectRaw('job_sources.name, COUNT(applicants.id) as total')
+            ->selectRaw('job_sources.name, COUNT(DISTINCT applicants.id) as total')
             ->groupBy('job_sources.name')
             ->orderByDesc('total')
             ->get();
+
+        $rejectionReasons = [];
+        if ($status === 'crm_rejected') {
+            // Same date/stage as the header counts: one reason per applicant
+            // from the latest crm_rejected_cv that matches a crm_reject history
+            // row in this range (applicant + sale). That stops extra reject
+            // rows from inflating the table above the distinct applicant totals.
+            $latestRejectSub = DB::table('crm_rejected_cv as crc')
+                ->join('history as h', function ($join) use ($startDate, $endDate) {
+                    $join->on('h.applicant_id', '=', 'crc.applicant_id')
+                        ->on('h.sale_id', '=', 'crc.sale_id')
+                        ->where('h.sub_stage', '=', 'crm_reject')
+                        ->where('h.status', '=', 1)
+                        ->whereBetween('h.created_at', [$startDate, $endDate]);
+                })
+                ->where('crc.status', 1)
+                ->select('crc.applicant_id', DB::raw('MAX(crc.id) as latest_id'))
+                ->groupBy('crc.applicant_id');
+
+            $reasonRows = (clone $statsQuery)
+                ->leftJoinSub($latestRejectSub, 'latest_reject', 'latest_reject.applicant_id', '=', 'applicants.id')
+                ->leftJoin('crm_rejected_cv as reject_row', 'reject_row.id', '=', 'latest_reject.latest_id')
+                ->select([
+                    'reject_row.reason',
+                    'applicants.job_type',
+                    'applicants.job_category_id',
+                    DB::raw('COUNT(DISTINCT applicants.id) as total'),
+                ])
+                ->groupBy('reject_row.reason', 'applicants.job_type', 'applicants.job_category_id')
+                ->get();
+
+            $reasons = [];
+            foreach ($reasonRows as $row) {
+                $key = $row->reason !== null && $row->reason !== '' ? (string) $row->reason : 'unknown';
+                if (!isset($reasons[$key])) {
+                    $reasons[$key] = [
+                        'reason' => $key,
+                        'label' => $this->formatRejectReason($key),
+                        'nurses_regular' => 0,
+                        'nurses_specialist' => 0,
+                        'non_nurses_regular' => 0,
+                        'non_nurses_specialist' => 0,
+                        'total' => 0,
+                    ];
+                }
+
+                $isNurse = (int) $row->job_category_id === (int) $nurseCategory->id;
+                $isSpecialist = strtolower((string) $row->job_type) === 'specialist';
+                $bucket = ($isNurse ? 'nurses_' : 'non_nurses_') . ($isSpecialist ? 'specialist' : 'regular');
+                $count = (int) $row->total;
+                $reasons[$key][$bucket] += $count;
+                $reasons[$key]['total'] += $count;
+            }
+
+            $rejectionReasons = array_values($reasons);
+            usort($rejectionReasons, fn ($a, $b) => $b['total'] <=> $a['total']);
+        }
 
         return response()->json([
             'title' => Str::title(str_replace('_', ' ', $status)) . " ({$displayDate})",
             'crm_status' => $status,
 
-            'nurses_regular' => (clone $applicantQuery)
-                ->where('job_category_id', $nurseCategory->id)
-                ->where('job_type', 'regular')
+            'nurses_regular' => (clone $statsQuery)
+                ->where('applicants.job_category_id', $nurseCategory->id)
+                ->where('applicants.job_type', 'regular')
                 ->distinct()
                 ->count('applicants.id'),
 
-            'nurses_specialist' => (clone $applicantQuery)
-                ->where('job_category_id', $nurseCategory->id)
-                ->where('job_type', 'specialist')
+            'nurses_specialist' => (clone $statsQuery)
+                ->where('applicants.job_category_id', $nurseCategory->id)
+                ->where('applicants.job_type', 'specialist')
                 ->distinct()
                 ->count('applicants.id'),
 
-            'non_nurses_regular' => (clone $applicantQuery)
-                ->whereNotIn('job_category_id', [$nurseCategory->id])
-                ->where('job_type', 'regular')
+            'non_nurses_regular' => (clone $statsQuery)
+                ->where(function ($q) use ($nurseCategory) {
+                    $q->where('applicants.job_category_id', '!=', $nurseCategory->id)
+                        ->orWhereNull('applicants.job_category_id');
+                })
+                ->where('applicants.job_type', 'regular')
                 ->distinct()
                 ->count('applicants.id'),
 
-            'non_nurses_specialist' => (clone $applicantQuery)
-                ->whereNotIn('job_category_id', [$nurseCategory->id])
-                ->where('job_type', 'specialist')
+            'non_nurses_specialist' => (clone $statsQuery)
+                ->where(function ($q) use ($nurseCategory) {
+                    $q->where('applicants.job_category_id', '!=', $nurseCategory->id)
+                        ->orWhereNull('applicants.job_category_id');
+                })
+                ->where('applicants.job_type', 'specialist')
                 ->distinct()
                 ->count('applicants.id'),
 
             'job_sources' => $jobSourceStats,
+            'rejection_reasons' => $rejectionReasons,
         ]);
+    }
+
+    private function formatRejectReason(?string $reason): string
+    {
+        return match ($reason) {
+            'position_filled' => 'Position Filled',
+            'agency' => 'Sent By Another Agency',
+            'manager' => 'Rejected By Manager',
+            'no_response' => 'No Response',
+            'update_notes' => 'Update Notes',
+            'unknown', '', null => 'Unknown',
+            default => Str::title(str_replace('_', ' ', (string) $reason)),
+        };
     }
 
     public function statisticsReportIndex(Request $request)
@@ -3078,10 +3134,15 @@ class DashboardController extends Controller
                 ->make(true);
         }
     }
-    private function parseDateRange(string $range, string $inputDate): array
+    private function parseDateRange(string $range, ?string $inputDate = null): array
     {
+        $inputDate = trim((string) $inputDate);
+
         switch ($range) {
             case 'daily':
+                if ($inputDate === '') {
+                    $inputDate = Carbon::today()->format('Y-m-d');
+                }
                 $startDate = Carbon::createFromFormat('Y-m-d', $inputDate)->startOfDay();
                 $endDate   = Carbon::createFromFormat('Y-m-d', $inputDate)->endOfDay();
                 $displayDate = $startDate->format('jS F Y');

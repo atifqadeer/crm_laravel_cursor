@@ -803,75 +803,77 @@ class HeadOfficeController extends Controller
     public function getModuleContacts(Request $request)
     {
         try {
-            // Validate the incoming request to ensure 'id' is provided and is a valid integer
             $request->validate([
-                'id' => 'required', // Assuming 'module_notes' is the table name and 'id' is the primary key
-                'module' => 'required', // Assuming 'module_notes' is the table name and 'id' is the primary key
+                'id' => 'required',
+                'module' => 'required',
             ]);
 
             $module = 'Horsefly\\' . $request->input('module');
+            // contactable_id is a VARCHAR. Comparing it to an integer makes
+            // MySQL cast the column (index skipped) instead of the literal.
+            $contactableId = (string) $request->input('id');
 
-            $hidePrivateDataSetting = Setting::where('key', 'hide_private_data')->value('value');
-            $hidePrivateData = array_filter(
-                array_map('trim', explode(',', $hidePrivateDataSetting ?? ''))
-            );
+            $contacts = DB::table('contacts')
+                ->leftJoin('job_sources', 'job_sources.id', '=', 'contacts.job_source_id')
+                ->where('contacts.contactable_id', $contactableId)
+                ->where('contacts.contactable_type', $module)
+                ->orderByDesc('contacts.id')
+                ->select([
+                    'contacts.contact_name',
+                    'contacts.contact_email',
+                    'contacts.contact_phone',
+                    'contacts.contact_landline',
+                    'contacts.contact_note',
+                    'job_sources.name as job_source_name',
+                ])
+                ->get();
 
-            // Fetch the module notes by the given ID
-            $contactQuery = Contact::where('contactable_id', $request->id)
-                ->where('contactable_type', $module);
+            if (!Gate::allows('show-private-data')) {
+                $hidePrivateDataSetting = Setting::where('key', 'hide_private_data')->value('value');
+                $hideValues = array_values(array_filter(
+                    array_map('trim', explode(',', $hidePrivateDataSetting ?? ''))
+                ));
 
-            if (!Gate::allows('show-private-data') && count($hidePrivateData) > 0) {
-                $contactQuery->where(function ($q) use ($hidePrivateData) {
-                    foreach ($hidePrivateData as $hideValue) {
-                        $q->where(function ($sub) use ($hideValue) {
-                            $sub->where(function ($w) use ($hideValue) {
-                                $w->whereNull('contact_email')
-                                    ->orWhere('contact_email', 'NOT LIKE', "%{$hideValue}%");
-                            })->where(function ($w) use ($hideValue) {
-                                $w->whereNull('contact_name')
-                                    ->orWhere('contact_name', 'NOT LIKE', "%{$hideValue}%");
-                            })->where(function ($w) use ($hideValue) {
-                                $w->whereNull('contact_note')
-                                    ->orWhere('contact_note', 'NOT LIKE', "%{$hideValue}%");
-                            });
-                        });
-                    }
-                });
+                if ($hideValues !== []) {
+                    $contacts = $contacts->filter(function ($contact) use ($hideValues) {
+                        foreach ($hideValues as $hideValue) {
+                            foreach ([$contact->contact_email, $contact->contact_name, $contact->contact_note] as $haystack) {
+                                if ($haystack !== null && $haystack !== '' && stripos((string) $haystack, $hideValue) !== false) {
+                                    return false;
+                                }
+                            }
+                        }
+
+                        return true;
+                    })->values();
+                }
             }
 
-            $contacts = $contactQuery
-                ->with('jobSource:id,name')
-                ->latest()
-                ->get()
-                ->map(function ($contact) {
-                    $sourceName = optional($contact->jobSource)->name;
-                    $contact->job_source_name = $sourceName;
-                    // Precompute for the Kingsburry/Others filter (name LIKE %hayaibu%).
-                    $contact->is_hayaibu_source = $sourceName !== null
-                        && stripos($sourceName, 'hayaibu') !== false;
-                    return $contact;
-                });
+            $data = $contacts->map(function ($contact) {
+                $sourceName = $contact->job_source_name;
 
-            // Check if the module note was found
-            if ($contacts->isEmpty()) {
-                return response()->json([
-                    'success' => true,
-                    'data' => [],
-                    'message' => 'No manager details found.'
-                ]);
-            }
+                return [
+                    'contact_name' => $contact->contact_name,
+                    'contact_email' => $contact->contact_email,
+                    'contact_phone' => $contact->contact_phone,
+                    'contact_landline' => $contact->contact_landline,
+                    'contact_note' => $contact->contact_note,
+                    'job_source_name' => $sourceName,
+                    'is_hayaibu_source' => $sourceName !== null
+                        && stripos($sourceName, 'hayaibu') !== false,
+                ];
+            })->values();
 
-            // Return the specific fields you need (e.g., applicant name, notes, etc.)
             return response()->json([
-                'data' => $contacts,
-                'success' => true
+                'data' => $data,
+                'success' => true,
+                'message' => $data->isEmpty() ? 'No manager details found.' : null,
             ]);
         } catch (\Exception $e) {
-            // If an error occurs, catch it and return a meaningful error message
             return response()->json([
                 'message' => $e->getMessage(),
                 'success' => false
-            ], 500); // Internal server error
+            ], 500);
         }
     }
     public function export(Request $request)

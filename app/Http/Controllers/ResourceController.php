@@ -1149,8 +1149,7 @@ class ResourceController extends Controller
             $model->orderBy('crm_notes.updated_at', 'desc');
         }
 
-        // ✅ Search — filter on already-joined columns directly instead of orWhereHas
-        // (avoids a correlated EXISTS subquery per relation on every row)
+        // ✅ Search — first/last name tokens plus similar words on joined columns
         if (!empty($searchTerm)) {
             $model->where(function ($query) use ($searchTerm) {
                 $like = "%{$searchTerm}%";
@@ -3108,10 +3107,10 @@ class ResourceController extends Controller
                         $q->where('users.name', 'LIKE', "%{$searchTerm}%");
                     });
                     $query->orWhereHas('module_note', function ($q) use ($searchTerm) {
-                        $q->where('details', 'LIKE', "%{$searchTerm}%");
+                        $q->where('details', 'LIKE', '%' . $searchTerm . '%');
                     });
                     $query->orWhereHas('applicant_notes', function ($q) use ($searchTerm) {
-                        $q->where('details', 'LIKE', "%{$searchTerm}%");
+                        $q->where('details', 'LIKE', '%' . $searchTerm . '%');
                     });
                 });
             }

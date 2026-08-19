@@ -23,6 +23,7 @@ use Horsefly\Region;
 use App\Observers\ActionObserver;
 
 use App\Support\DialLink;
+use App\Support\IntelligentSearch;
 
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
@@ -577,21 +578,7 @@ class SaleController extends Controller
         $validator = Validator::make($request->all(), [
             'office_id' => 'required',
             'unit_id' => 'required',
-            'sale_postcode' => [
-                'required',
-                'string',
-                'min:3',
-                'max:8',
-                'regex:/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d ]+$/',
-                Rule::unique('sales')->where(function ($q) use ($request) {
-                    return $q->where('office_id', $request->office_id)
-                        ->where('unit_id', $request->unit_id)
-                        ->where('sale_postcode', $request->sale_postcode)
-                        ->where('job_category_id', $request->job_category_id)
-                        ->where('job_title_id', $request->job_title_id)
-                        ->where('status', 1);
-                }),
-            ],
+            'sale_postcode' => 'required|string',
             'job_category_id' => 'required',
             'job_title_id' => 'required',
             'job_source_id' => 'required',
@@ -607,6 +594,40 @@ class SaleController extends Controller
             'job_description' => 'nullable|string',
             'attachments.*' => 'nullable|file|extensions:pdf,doc,docx,txt|max:10000', // max 10MB
         ]);
+
+        // Overall duplicate check (runs after the rules above pass their basic checks)
+        $validator->after(function ($validator) use ($request) {
+
+            $query = Sale::where('sale_postcode', $request->sale_postcode)
+            ->where('office_id', $request->office_id)
+                                ->where('unit_id', $request->unit_id)
+                                ->where('sale_postcode', $request->sale_postcode)
+                                ->where('job_category_id', $request->job_category_id)
+                                ->where('job_title_id', $request->job_title_id)
+                                ->whereIn('status', [1, 2]);
+
+            if ($request->job_source_id == 10) {
+                // Only conflict with other records that are ALSO job_source_id = 10
+                $query->where('job_source_id', 10);
+            } else {
+                // Conflict with any record that is NOT job_source_id = 10
+                $query->where('job_source_id', '!=', 10);
+            }
+
+            // Exclude current record when editing
+            if ($request->filled('sale_id')) {
+                $query->where('id', '!=', $request->sale_id);
+            }
+
+            if ($query->exists()) {
+                $validator->errors()->add('sale_postcode', 'This sale already exists (duplicate postcode).')
+                ->add('unit_id', 'This sale already exists (duplicate unit).')
+                ->add('office_id', 'This sale already exists (duplicate office).')
+                ->add('job_category_id', 'This sale already exists (duplicate job category).')
+                ->add('job_title_id', 'This sale already exists (duplicate job title).')
+                ->add('job_source_id', 'This sale already exists (duplicate job source).');
+            }
+        });
 
         if ($validator->fails()) {
             return response()->json([
@@ -816,22 +837,10 @@ class SaleController extends Controller
     {
         // Validation
         $validator = Validator::make($request->all(), [
-            'office_id' => ['required'],
-            'unit_id' => ['required'],
-            'sale_postcode' => [
-                'required',
-                'string',
-                'min:3',
-                'max:8',
-                'regex:/^(?=.*[A-Za-z])(?=.*\d)[A-Za-z\d ]+$/',
-                Rule::unique('sales')->where(function ($q) use ($request) {
-                    return $q->where('office_id', $request->office_id)
-                        ->where('unit_id', $request->unit_id)
-                        ->where('sale_postcode', $request->sale_postcode)
-                        ->where('job_category_id', $request->job_category_id)
-                        ->where('job_title_id', $request->job_title_id)->where('status', 1);
-                })->ignore($request->sale_id),
-            ],
+            'sale_id' => 'required|exists:sales,id',
+            'office_id' => 'required',
+            'unit_id' => 'required',
+            'sale_postcode' => 'required|string',
             'job_category_id' => 'required',
             'job_title_id' => 'required',
             'job_source_id' => 'required',
@@ -844,12 +853,43 @@ class SaleController extends Controller
             'benefits' => 'required',
             'qualification' => 'required',
             'sale_notes' => 'required',
-            'job_description' => 'nullable',
-            'attachments.*' => 'file|mimes:pdf,doc,docx,txt|max:10000',
+            'job_description' => 'nullable|string',
+            'attachments.*' => 'nullable|file|extensions:pdf,doc,docx,txt|max:10000', // max 10MB
         ]);
+
+        // Overall duplicate check (runs after the rules above pass their basic checks)
+        $validator->after(function ($validator) use ($request) {
+
+            $query = Sale::where('office_id', $request->office_id)
+                ->where('unit_id', $request->unit_id)
+                ->where('sale_postcode', $request->sale_postcode)
+                ->where('job_category_id', $request->job_category_id)
+                ->where('job_title_id', $request->job_title_id)
+                ->whereIn('status', [1, 2])
+                // Always exclude the record being edited
+                ->where('id', '!=', $request->sale_id);
+
+            if ($request->job_source_id == 10) {
+                // Only conflict with other records that are ALSO job_source_id = 10
+                $query->where('job_source_id', 10);
+            } else {
+                // Conflict with any record that is NOT job_source_id = 10
+                $query->where('job_source_id', '!=', 10);
+            }
+
+            if ($query->exists()) {
+                $validator->errors()->add('sale_postcode', 'This sale already exists (duplicate postcode).')
+                    ->add('unit_id', 'This sale already exists (duplicate unit).')
+                    ->add('office_id', 'This sale already exists (duplicate office).')
+                    ->add('job_category_id', 'This sale already exists (duplicate job category).')
+                    ->add('job_title_id', 'This sale already exists (duplicate job title).')
+                    ->add('job_source_id', 'This sale already exists (duplicate job source).');
+            }
+        });
 
         if ($validator->fails()) {
             return response()->json([
+                'success' => false,
                 'errors' => $validator->errors(),
                 'message' => 'Please fix the errors in the form'
             ], 422);
@@ -4005,42 +4045,29 @@ class SaleController extends Controller
                 break;
         }
 
-        // Search - remove the orWhereExists for notes from here
+        // Search - first/last name tokens plus similar words; notes via EXISTS
         if ($request->has('search.value')) {
-            $searchTerm = (string) $request->input('search.value');
+            $searchTerm = trim((string) $request->input('search.value'));
 
-            if (!empty($searchTerm)) {
+            if ($searchTerm !== '') {
                 $model->where(function ($query) use ($searchTerm) {
-                    $query->where('applicants.applicant_name', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('applicants.applicant_email', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('applicants.applicant_email_secondary', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('applicants.applicant_postcode', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('applicants.applicant_phone', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('applicants.applicant_phone_secondary', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('applicants.applicant_experience', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('applicants.applicant_landline', 'LIKE', "%{$searchTerm}%")
-                        ->orWhere('applicants.applicant_notes', 'LIKE', "%{$searchTerm}%") // ✅ direct column
-                        ->orWhereHas('jobTitle', fn($q) => $q->where('job_titles.name', 'LIKE', "%{$searchTerm}%"))
-                        ->orWhereHas('jobCategory', fn($q) => $q->where('job_categories.name', 'LIKE', "%{$searchTerm}%"))
-                        ->orWhereHas('jobSource', fn($q) => $q->where('job_sources.name', 'LIKE', "%{$searchTerm}%"))
-                        // ✅ Search module_notes details
-                        ->orWhereRaw('EXISTS (
+                    IntelligentSearch::apply($query, $searchTerm, IntelligentSearch::applicantColumns());
+                    $query->orWhereRaw('EXISTS (
                     SELECT 1 FROM module_notes mn
                     WHERE mn.module_noteable_id = applicants.id
                       AND mn.module_noteable_type = ?
                       AND mn.details LIKE ?
-                )', [Applicant::class, "%{$searchTerm}%"])
-                        // ✅ Search applicant_notes details
+                )', [Applicant::class, '%' . $searchTerm . '%'])
                         ->orWhereRaw("EXISTS (
                     SELECT 1 FROM applicant_notes an
                     WHERE an.applicant_id = applicants.id
                       AND an.details LIKE ?
-                )", ["%{$searchTerm}%"]);
+                )", ['%' . $searchTerm . '%']);
                 });
             }
         }
 
-        return DataTables::eloquent($model)
+        return IntelligentSearch::withoutDefaultFilter(DataTables::eloquent($model))
                 ->addIndexColumn()
                 ->addColumn('checkbox', function ($applicant) {
                     return '<input type="checkbox" name="applicant_checkbox[]" class="applicant_checkbox" value="' . $applicant->id . '"/>';
@@ -4715,31 +4742,40 @@ class SaleController extends Controller
 
         // Apply search filter BEFORE sending to DataTables
         if ($request->has('search.value')) {
-            $searchTerm = $request->input('search.value');
-            $model->where(function ($query) use ($searchTerm) {
-                $query->where('history.sub_stage', 'LIKE', "%{$searchTerm}%")
-                    ->orWhere('history.stage', 'LIKE', "%{$searchTerm}%")
-                    ->orWhere('history.created_at', 'LIKE', "%{$searchTerm}%")
-                    ->orWhere('crm_notes.details', 'LIKE', "%{$searchTerm}%")
-                    ->orWhere('applicants.applicant_name', 'LIKE', "%{$searchTerm}%")
-                    ->orWhere('applicants.applicant_phone', 'LIKE', "%{$searchTerm}%")
-                    ->orWhere('applicants.applicant_landline', 'LIKE', "%{$searchTerm}%")
-                    ->orWhere('applicants.applicant_postcode', 'LIKE', "%{$searchTerm}%");
-
-                // Relationship searches with explicit table names
-                $query->orWhereHas('jobTitle', function ($q) use ($searchTerm) {
-                    $q->where('job_titles.name', 'LIKE', "%{$searchTerm}%");
+            $searchTerm = trim((string) $request->input('search.value'));
+            if ($searchTerm !== '') {
+                $model->where(function ($query) use ($searchTerm) {
+                    IntelligentSearch::apply($query, $searchTerm, [
+                        'name' => ['applicants.applicant_name'],
+                        'emails' => [
+                            'applicants.applicant_email',
+                            'applicants.applicant_email_secondary',
+                        ],
+                        'text' => [
+                            'history.sub_stage',
+                            'history.stage',
+                            'crm_notes.details',
+                        ],
+                        'phones' => [
+                            'applicants.applicant_phone',
+                            'applicants.applicant_landline',
+                        ],
+                        'postcodes' => ['applicants.applicant_postcode'],
+                    ]);
+                    $query->orWhere('history.created_at', 'LIKE', '%' . $searchTerm . '%')
+                        ->orWhereHas('jobTitle', function ($q) use ($searchTerm) {
+                            $q->where('job_titles.name', 'LIKE', '%' . $searchTerm . '%');
+                        })
+                        ->orWhereHas('jobCategory', function ($q) use ($searchTerm) {
+                            $q->where('job_categories.name', 'LIKE', '%' . $searchTerm . '%');
+                        });
                 });
-
-                $query->orWhereHas('jobCategory', function ($q) use ($searchTerm) {
-                    $q->where('job_categories.name', 'LIKE', "%{$searchTerm}%");
-                });
-            });
+            }
         }
 
         // Handle AJAX request
         if ($request->ajax()) {
-            return DataTables::eloquent($model)
+            return IntelligentSearch::withoutDefaultFilter(DataTables::eloquent($model))
                 ->addIndexColumn()
                 ->addColumn('created_at', function ($row) {
                     return Carbon::parse($row->created_at)->format('d M Y, h:i A');

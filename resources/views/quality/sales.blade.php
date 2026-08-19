@@ -153,46 +153,46 @@
                                 </div>
                                 <!-- Sources Filter Dropdown -->
                                 <div class="dropdown d-inline">
-                                        <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button"
-                                            id="dropdownMenuButton10" data-bs-toggle="dropdown" aria-expanded="false">
-                                            <i class="ri-filter-line me-1"></i> <span id="showFilterSource">All Sources</span>
-                                        </button>
+                                    <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button"
+                                        id="dropdownMenuButton10" data-bs-toggle="dropdown" aria-expanded="false">
+                                        <i class="ri-filter-line me-1"></i> <span id="showFilterSource">All Sources</span>
+                                    </button>
 
-                                        <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton10">
-                                            <!-- Search input -->
-                                            <input type="text" class="form-control mb-2" id="sourceSearchInput"
-                                                placeholder="Search Source...">
-                                            <!-- Select/Deselect All -->
-                                            <div class="d-flex justify-content-end px-1 mb-1" id="sourceToggleContainer">
-                                                <a href="#" id="sourceSelectAll"
-                                                    class="filter-select-all text-primary small fw-semibold me-2"
-                                                    data-target=".source-filter" data-exclude="[data-source-id='']">Select
-                                                    All</a>
-                                                <a href="#" id="sourceDeselectAll"
-                                                    class="filter-deselect-all text-danger small fw-semibold"
-                                                    data-target=".source-filter" data-exclude="[data-source-id='']"
-                                                    style="display:none">Deselect All</a>
+                                    <div class="dropdown-menu filter-dropdowns" aria-labelledby="dropdownMenuButton10">
+                                        <!-- Search input -->
+                                        <input type="text" class="form-control mb-2" id="sourceSearchInput"
+                                            placeholder="Search Source...">
+                                        <!-- Select/Deselect All -->
+                                        <div class="d-flex justify-content-end px-1 mb-1" id="sourceToggleContainer">
+                                            <a href="#" id="sourceSelectAll"
+                                                class="filter-select-all text-primary small fw-semibold me-2"
+                                                data-target=".source-filter" data-exclude="[data-source-id='']">Select
+                                                All</a>
+                                            <a href="#" id="sourceDeselectAll"
+                                                class="filter-deselect-all text-danger small fw-semibold"
+                                                data-target=".source-filter" data-exclude="[data-source-id='']"
+                                                style="display:none">Deselect All</a>
+                                        </div>
+                                        <!-- Scrollable checkbox list -->
+                                        <div id="sourceList">
+                                            <div class="form-check">
+                                                <input class="form-check-input source-filter" type="checkbox"
+                                                    value="" id="all-sources" data-source-id="">
+                                                <label class="form-check-label" for="all-sources">All Sources</label>
                                             </div>
-                                            <!-- Scrollable checkbox list -->
-                                            <div id="sourceList">
+
+                                            @foreach ($jobSources as $source)
                                                 <div class="form-check">
                                                     <input class="form-check-input source-filter" type="checkbox"
-                                                        value="" id="all-sources" data-source-id="">
-                                                    <label class="form-check-label" for="all-sources">All Sources</label>
+                                                        value="{{ $source->id }}" id="source_{{ $source->id }}"
+                                                        data-source-id="{{ $source->id }}">
+                                                    <label class="form-check-label"
+                                                        for="source_{{ $source->id }}">{{ ucwords($source->name) }}</label>
                                                 </div>
-
-                                                @foreach ($jobSources as $source)
-                                                    <div class="form-check">
-                                                        <input class="form-check-input source-filter" type="checkbox"
-                                                            value="{{ $source->id }}" id="source_{{ $source->id }}"
-                                                            data-source-id="{{ $source->id }}">
-                                                        <label class="form-check-label"
-                                                            for="source_{{ $source->id }}">{{ ucwords($source->name) }}</label>
-                                                    </div>
-                                                @endforeach
-                                            </div>
+                                            @endforeach
                                         </div>
                                     </div>
+                                </div>
                                 <!-- cv limit Filter Dropdown -->
                                 <div class="dropdown d-inline">
                                     <button class="btn btn-outline-primary me-1 my-1 dropdown-toggle" type="button" id="dropdownMenuButton7" data-bs-toggle="dropdown" aria-expanded="false">
