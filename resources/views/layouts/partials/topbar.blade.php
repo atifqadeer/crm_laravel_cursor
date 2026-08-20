@@ -106,7 +106,7 @@
                               </button>
                          </div>
 
-                         <!-- Category -->
+                         <!-- full screen toggle -->
                          <div class="dropdown topbar-item d-none d-lg-flex">
                               <button type="button" class="topbar-button" data-toggle="fullscreen">
                                    <i class="ri-fullscreen-line fs-24 fullscreen"></i>

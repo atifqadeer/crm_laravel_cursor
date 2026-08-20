@@ -305,17 +305,16 @@
                                     <th>Date</th>
                                     <th>Agent</th>
                                     <th id="schedule_date" style="display:none;">Schedule Date</th>
-                                    <th>Applicant Name</th>
-                                    {{-- <th>Email</th> --}}
+                                    <th>Name (Applicant)</th>
                                     <th width="15%">Phone / Landline</th>
                                     <th>Title</th>
                                     <th>Category</th>
-                                    <th>PostCode</th>
+                                    <th>PostCode (Applicant)</th>
                                     <th>Job</th>
                                     <th>Head Office</th>
                                     <th>Unit</th>
-                                    <th>PostCode</th>
-                                    <th>Job Source</th>
+                                    <th>PostCode (Sale)</th>
+                                    <th>Source (Sale)</th>
                                     <th width="20%">Notes</th>
                                     <th id="paid_status" style="display:none;">Paid Status</th>
                                     <th>Action</th>
