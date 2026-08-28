@@ -43,6 +43,7 @@ class ApiController extends Controller
               ->selectRaw('MAX(id) as id, auditable_id')
               ->where('auditable_type', 'Horsefly\\Sale')
               ->whereIn('message', ['open', 'sale-opened'])
+            //   ->orWhere('message', 'LIKE', '%has been updated%')
               ->groupBy('auditable_id');
   
           $cvCountSub = DB::table('cv_notes')
@@ -161,12 +162,13 @@ class ApiController extends Controller
               'location'     => 'units.unit_name',
           ];
   
-          $sortBy = (string) $request->input('sort_by', 'updated_at');
+          $sortBy = (string) $request->input('sort_by', 'created');
           $sortDir = strtolower((string) $request->input('sort_dir', 'desc')) === 'asc' ? 'asc' : 'desc';
           if (isset($sortMap[$sortBy])) {
               $query->orderBy($sortMap[$sortBy], $sortDir);
           } else {
-              $query->orderBy('sales.updated_at', 'desc');
+              // Open date when present, otherwise the sale's last update — newest first.
+              $query->orderByRaw('COALESCE(audits.created_at, sales.updated_at) ' . $sortDir);
           }
   
           // $paginator = $query->paginate($perPage)->appends($request->query());
@@ -183,6 +185,8 @@ class ApiController extends Controller
                   $sale->sale_postcode,
                   $regions
               );
+
+              $createdAt = $this->resolveApiCreatedAt($sale);
   
               return [
                   'sale_id' => (int) $sale->id,
@@ -201,9 +205,8 @@ class ApiController extends Controller
                   'qualification' => $this->cleanSaleText($sale->qualification),
                   'benefits' => $this->cleanSaleText($sale->benefits),
                   'status' => $sale->status == 1 ? 'active' : 'closed',
-                  'created' => $sale->open_date
-                      ? Carbon::parse($sale->open_date)->format('Y-m-d')
-                      : null,
+                  'created' => $this->formatApiCreatedDate($createdAt),
+                  'ago' => $createdAt ? $this->formatCreatedAgo($createdAt) : null,
               ];
           })->values();
   
@@ -233,6 +236,7 @@ class ApiController extends Controller
               ->selectRaw('MAX(id) as id, auditable_id')
               ->where('auditable_type', 'Horsefly\\Sale')
               ->whereIn('message', ['open', 'sale-opened'])
+            //   ->orWhere('message', 'LIKE', '%has been updated%')
               ->groupBy('auditable_id');
   
           $cvCountSub = DB::table('cv_notes')
@@ -305,6 +309,8 @@ class ApiController extends Controller
               $sale->sale_postcode,
               $regions
           );
+
+          $createdAt = $this->resolveApiCreatedAt($sale);
   
           return response()->json([
               'success' => true,
@@ -326,9 +332,8 @@ class ApiController extends Controller
                   'benefits' => $this->cleanSaleText($sale->benefits),
                   'notes' => $this->cleanSaleText($sale->sale_notes),
                   'status' => (int) $sale->status === 1 ? 'active' : 'closed',
-                  'created' => $sale->open_date
-                      ? Carbon::parse($sale->open_date)->format('Y-m-d')
-                      : null,
+                  'created' => $this->formatApiCreatedDate($createdAt),
+                  'ago' => $createdAt ? $this->formatCreatedAgo($createdAt) : null,
               ],
           ]);
       }
@@ -561,7 +566,7 @@ class ApiController extends Controller
 
       /**
        * Detect pay period from free-text (and figure shape as fallback).
-       * Returns short labels: p.a (per annum), p/h (per hour), p/d (per day).
+       * Returns short labels: p/a (per annum), p/h (per hour), p/d (per day).
        *
        * @param  list<array{amount:int,decimals:?string,k:bool,comma:bool}>  $figures
        */
@@ -588,7 +593,7 @@ class ApiController extends Controller
           }
 
           if (preg_match('/\b(?:per\s*annum|per\s*year|a\s*year|p\.?\s*a\.?|p\/a|annum|annual)\b/i', $lower)) {
-              return 'p.a';
+              return 'p/a';
           }
 
           if (preg_match('/\b(?:per\s*day|p\/d|daily)\b/i', $lower)) {
@@ -598,7 +603,7 @@ class ApiController extends Controller
           // Fallback from figure shape when wording is missing.
           foreach ($figures as $figure) {
               if ($figure['k'] || $figure['comma'] || $figure['amount'] >= 1000) {
-                  return 'p.a';
+                  return 'p/a';
               }
           }
 
@@ -632,6 +637,45 @@ class ApiController extends Controller
           }
 
           return '£' . $figure['amount'];
+      }
+
+      /**
+       * Created date for the portal API: latest open audit, else the sale's updated_at.
+       */
+      private function resolveApiCreatedAt($sale): ?Carbon
+      {
+          $value = $sale->open_date ?: $sale->updated_at;
+          if ($value === null || $value === '') {
+              return null;
+          }
+
+          return Carbon::parse($value);
+      }
+
+      /**
+       * Calendar date for the API.
+       * Show Y-m-d only when the created date is within the last 3 weeks;
+       * otherwise null.
+       */
+      private function formatApiCreatedDate(?Carbon $date): ?string
+      {
+          if ($date === null || $date->lt(Carbon::now()->subWeeks(3))) {
+              return null;
+          }
+
+          return $date->format('Y-m-d');
+      }
+
+      /**
+       * Relative age of the listing vs now, e.g. "recent", "2 hours ago".
+       */
+      private function formatCreatedAgo(Carbon $date): string
+      {
+          if ($date->greaterThanOrEqualTo(Carbon::now()->subHour())) {
+              return 'recent';
+          }
+
+          return $date->diffForHumans();
       }
 
       private function cleanSaleText($value)
