@@ -3,16 +3,23 @@
 namespace App\Exports;
 
 use Horsefly\Unit;
+use Horsefly\Office;
+use Horsefly\Contact;
+use App\Traits\HidesPrivateContacts;
 use Maatwebsite\Excel\Concerns\FromCollection;
 use Maatwebsite\Excel\Concerns\WithHeadings;
 
 class UnitsExport implements FromCollection, WithHeadings
 {
-    protected $type;
+    use HidesPrivateContacts;
 
-    public function __construct(string $type = 'all')
+    protected $type;
+    protected $filters;
+
+    public function __construct(string $type = 'all', array $filters = [])
     {
         $this->type = $type;
+        $this->filters = $filters;
     }
 
     /**
@@ -22,7 +29,7 @@ class UnitsExport implements FromCollection, WithHeadings
     {
         switch ($this->type) {
             case 'emails':
-                return Unit::select(
+                $query = Unit::select(
                         'units.id', 
                         'units.unit_name', 
                         'units.unit_postcode',
@@ -30,11 +37,15 @@ class UnitsExport implements FromCollection, WithHeadings
                         'units.created_at'
                     )
                     ->leftJoin('contacts', 'units.id', '=', 'contacts.contactable_id')
-                    ->where('contacts.contactable_type', 'Horsefly\\Unit')
+                    ->where('contacts.contactable_type', 'Horsefly\\Unit');
+
+                $this->excludePrivateContacts($query);
+                $this->applyListFilters($query);
+
+                return $query
                     ->get()
                     ->map(function ($item) {
                         return [
-                            'id' => $item->id,
                             'unit_name' => ucwords(strtolower($item->unit_name)),
                             'unit_postcode' => strtoupper($item->unit_postcode),
                             'contact_email' => $item->contact_email,
@@ -43,7 +54,7 @@ class UnitsExport implements FromCollection, WithHeadings
                     });
                 
             case 'noLatLong':
-                return Unit::select(
+                $query = Unit::select(
                         'id', 
                         'unit_name',
                         'unit_postcode',
@@ -60,11 +71,14 @@ class UnitsExport implements FromCollection, WithHeadings
                         $query->where('lng', '0')
                             ->orWhereNull('lng')
                             ->orWhere('lng', '');
-                    })
+                    });
+
+                $this->applyListFilters($query);
+
+                return $query
                     ->get()
                     ->map(function ($item) {
                         return [
-                            'id' => $item->id,
                             'unit_name' => ucwords(strtolower($item->unit_name)),
                             'unit_postcode' => strtoupper($item->unit_postcode),
                             'lat' => $item->lat,
@@ -76,7 +90,7 @@ class UnitsExport implements FromCollection, WithHeadings
                     });
                 
             case 'all':
-                return Unit::select(
+                $query = Unit::select(
                         'units.id', 
                         'offices.office_name', 
                         'units.unit_name', 
@@ -89,11 +103,15 @@ class UnitsExport implements FromCollection, WithHeadings
                     )
                     ->leftJoin('contacts', 'units.id', '=', 'contacts.contactable_id')
                     ->leftJoin('offices', 'units.office_id', '=', 'offices.id')
-                    ->where('contacts.contactable_type', 'Horsefly\\Unit')
+                    ->where('contacts.contactable_type', 'Horsefly\\Unit');
+
+                $this->excludePrivateContacts($query);
+                $this->applyListFilters($query);
+
+                return $query
                     ->get()
                     ->map(function ($item) {
                         return [
-                            'id' => $item->id,
                             'office_name' => ucwords(strtolower($item->office_name)),
                             'unit_name' => ucwords(strtolower($item->unit_name)),
                             'unit_postcode' => strtoupper($item->unit_postcode),
@@ -110,15 +128,66 @@ class UnitsExport implements FromCollection, WithHeadings
         }
     }
 
+    /**
+     * Match the units list filters (status, head office, search).
+     */
+    protected function applyListFilters($query)
+    {
+        $query->whereNull('units.deleted_at')
+            ->whereNotIn('units.status', [4, 5]);
+
+        $status = strtolower(trim((string) ($this->filters['status_filter'] ?? '')));
+        if ($status === 'active') {
+            $query->where('units.status', 1);
+        } elseif ($status === 'inactive') {
+            $query->where('units.status', 0);
+        }
+
+        $officeIds = $this->arrayFilter($this->filters['office_filter'] ?? null);
+        if ($officeIds !== []) {
+            $query->whereIn('units.office_id', $officeIds);
+        }
+
+        $search = trim((string) ($this->filters['search'] ?? ''));
+        if (strlen($search) >= 2) {
+            $unitIdsFromSearch = Unit::search($search)->keys()->toArray();
+            $officeIdsFromSearch = Office::search($search)->keys()->toArray();
+            $unitIdsByOffice = $officeIdsFromSearch !== []
+                ? Unit::whereIn('office_id', $officeIdsFromSearch)->pluck('id')->toArray()
+                : [];
+            $unitIdsFromContacts = Contact::where('contactable_type', 'Horsefly\\Unit')
+                ->where(function ($q) use ($search) {
+                    $q->where('contact_email', 'LIKE', "%{$search}%")
+                        ->orWhere('contact_phone', 'LIKE', "%{$search}%");
+                })
+                ->pluck('contactable_id')
+                ->toArray();
+
+            $allIds = array_unique(array_merge($unitIdsFromSearch, $unitIdsByOffice, $unitIdsFromContacts));
+            $query->whereIn('units.id', $allIds !== [] ? $allIds : [0]);
+        }
+
+        return $query;
+    }
+
+    protected function arrayFilter($value): array
+    {
+        if ($value === null || $value === '' || $value === []) {
+            return [];
+        }
+
+        return array_values(array_filter((array) $value, fn ($item) => $item !== '' && $item !== null));
+    }
+
     public function headings(): array
     {
         switch ($this->type) {
             case 'emails':
-                return ['ID', 'Unit Name', 'Postcode', 'Contact Email', 'Created At'];
+                return ['Unit Name', 'Postcode', 'Contact Email', 'Created At'];
             case 'noLatLong':
-                return ['ID', 'Unit Name', 'Postcode', 'Latitude', 'Longitude', 'Created At'];
+                return ['Unit Name', 'Postcode', 'Latitude', 'Longitude', 'Created At'];
             case 'all':
-                return ['ID', 'Head Office Name', 'Unit Name', 'Unit Postcode', 'Contact Name', 'Contact Email', 'Contact Phone', 'Contact Landline', 'Created At'];
+                return ['Head Office Name', 'Unit Name', 'Unit Postcode', 'Contact Name', 'Contact Email', 'Contact Phone', 'Contact Landline', 'Created At'];
             default:
                 return [];
         }

@@ -39,11 +39,13 @@ use App\Exports\SalesExport;
 use Carbon\Carbon;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Traits\Geocode;
+use App\Traits\FiltersRadiusApplicants;
 use Exception;
 
 class SaleController extends Controller
 {
     use Geocode;
+    use FiltersRadiusApplicants;
 
     public function __construct()
     {
@@ -394,7 +396,47 @@ class SaleController extends Controller
             ->where('status', 1)
             ->count();
 
-        return view('sales.fetch-applicants-by-radius', compact('sale', 'radiusInMiles', 'jobCategory', 'sale_cv_count', 'jobTitle', 'jobType', 'office', 'unit', 'radius'));
+        $jobTitles = JobTitle::where('is_active', 1)
+            ->where('job_category_id', $sale->job_category_id)
+            ->orderBy('name', 'asc')
+            ->get();
+
+        $hidePrivateDataSetting = Setting::where('key', 'hide_private_data')->value('value');
+        $hidePrivateData = array_filter(
+            array_map('trim', explode(',', $hidePrivateDataSetting ?? ''))
+        );
+
+        $hiddenSourceIds = [];
+        if (!Gate::allows('show-private-data') && count($hidePrivateData) > 0) {
+            $hiddenSourceIds = JobSource::where('is_active', 1)
+                ->where(function ($q) use ($hidePrivateData) {
+                    foreach ($hidePrivateData as $hideName) {
+                        $q->orWhere('name', 'LIKE', '%' . $hideName . '%');
+                    }
+                })
+                ->pluck('id')
+                ->toArray();
+        }
+
+        $jobSourcesQuery = JobSource::where('is_active', 1);
+        if (count($hiddenSourceIds) > 0) {
+            $jobSourcesQuery->whereNotIn('id', $hiddenSourceIds);
+        }
+        $jobSources = $jobSourcesQuery->orderBy('name', 'asc')->get();
+
+        return view('sales.fetch-applicants-by-radius', compact(
+            'sale',
+            'radiusInMiles',
+            'jobCategory',
+            'sale_cv_count',
+            'jobTitle',
+            'jobType',
+            'office',
+            'unit',
+            'radius',
+            'jobTitles',
+            'jobSources'
+        ));
     }
     public function rejectedSaleIndex()
     {
@@ -3834,13 +3876,14 @@ class SaleController extends Controller
 
         $sale_id      = (int) $validated['sale_id'];
         $radius       = (float) ($validated['radius'] ?? 15);
-        $statusFilter = strtolower(trim(preg_replace('/\s+/', ' ', (string) $request->input('status_filter', ''))));
-
-        if (in_array($statusFilter, ['', 'all'], true)) {
-            $statusFilter = '';
-        }
-
         $sale = Sale::findOrFail($sale_id);
+        $filters = [
+            'status_filter' => $request->input('status_filter', ''),
+            'cv_status_filter' => $request->input('cv_status_filter', ''),
+            'title_filter' => $request->input('title_filter', []),
+            'source_filter' => $request->input('source_filter', []),
+            'category_id' => $sale->job_category_id,
+        ];
 
         if ($sale->lat === null || $sale->lng === null) {
             return response()->json(['error' => 'Sale location coordinates are missing.'], 422);
@@ -3917,28 +3960,8 @@ class SaleController extends Controller
                 END AS paid_status_order
             ", [$sale_id, $sale_id]);
 
-        $jobTitle = JobTitle::find($sale->job_title_id);
-
-        if ($jobTitle) {
-            $relatedTitles = is_array($jobTitle->related_titles)
-                ? $jobTitle->related_titles
-                : json_decode($jobTitle->related_titles ?? '[]', true);
-
-            $titles = collect($relatedTitles)
-                ->map(fn ($item) => strtolower(trim((string) $item)))
-                ->push(strtolower(trim($jobTitle->name)))
-                ->filter()
-                ->unique()
-                ->values()
-                ->all();
-
-            if (!empty($titles)) {
-                $jobTitleIds = JobTitle::whereIn(DB::raw('LOWER(name)'), $titles)->pluck('id')->all();
-                if (!empty($jobTitleIds)) {
-                    $model->whereIn('applicants.job_title_id', $jobTitleIds);
-                }
-            }
-        }
+        // Title / category / source / Open-Sent status filters
+        $this->applyRadiusApplicantFilters($model, $sale_id, $filters, false);
 
         // Sorting logic
         if ($request->has('order')) {
@@ -3963,86 +3986,6 @@ class SaleController extends Controller
         } else {
             // ✅ Default: latest note date first
             $model->orderByRaw('notes_created_at DESC');
-        }
-
-        // Status filter
-        switch ($statusFilter) {
-            case 'interested':
-                $model->where('is_no_job', false)
-                    ->where('is_blocked', false)
-                    ->where(function ($query) {
-                        $query->where(function ($q) {
-                            $q->where('is_temp_not_interested', false)->where('is_callback_enable', true);
-                        })->orWhere(function ($q) {
-                            $q->where('is_temp_not_interested', true)->where('is_callback_enable', true);
-                        })->orWhere(function ($q) {
-                            $q->where('is_temp_not_interested', false)->where('is_callback_enable', false);
-                        });
-                    })
-                    ->where(function ($query) {
-                        $query->where('have_nursing_home_experience', false)
-                            ->orWhereNull('have_nursing_home_experience');
-                    })
-                    ->whereDoesntHave('pivotSales', function ($query) use ($sale_id) {
-                        $query->where('sale_id', $sale_id);
-                    });
-                break;
-
-            case 'not interested':
-                $model->where('is_no_job', false)
-                    ->where('is_blocked', false)
-                    ->where('is_callback_enable', false)
-                    ->where(function ($query) use ($sale_id) {
-                        $query->where('is_temp_not_interested', true)
-                            ->orWhereHas('pivotSales', function ($q) use ($sale_id) {
-                                $q->where('sale_id', $sale_id);
-                            });
-                    })
-                    ->where(function ($query) {
-                        $query->where('have_nursing_home_experience', false)
-                            ->orWhereNull('have_nursing_home_experience');
-                    })
-                    ->where(function ($query) use ($sale_id) {
-                        $query->doesntHave('history_request_nojob')
-                            ->orWhereDoesntHave('history_request_nojob', function ($q) use ($sale_id) {
-                                $q->where('sale_id', $sale_id);
-                            });
-                    });
-                break;
-
-            case 'blocked':
-                $model->where('is_no_job', false)
-                    ->where('is_blocked', true)
-                    ->where('is_callback_enable', false)
-                    ->where('is_temp_not_interested', false)
-                    ->where(function ($query) {
-                        $query->where('have_nursing_home_experience', false)
-                            ->orWhereNull('have_nursing_home_experience');
-                    });
-                break;
-
-            case 'callback':
-                $model->where('is_callback_enable', true);
-                break;
-
-            case 'have nursing home experience':
-                $model->where('have_nursing_home_experience', true);
-                break;
-
-            case 'no job':
-                $model->where(function ($query) use ($sale_id) {
-                    $query->where(function ($inner) {
-                        $inner->where('is_no_job', true)
-                            ->where('is_callback_enable', false)
-                            ->where(function ($q) {
-                                $q->where('have_nursing_home_experience', false)
-                                    ->orWhereNull('have_nursing_home_experience');
-                            });
-                    })->orWhereHas('history_request_nojob', function ($q) use ($sale_id) {
-                        $q->where('sale_id', $sale_id);
-                    });
-                });
-                break;
         }
 
         // Search - first/last name tokens plus similar words; notes via EXISTS
@@ -4623,7 +4566,7 @@ class SaleController extends Controller
     public function export(Request $request)
     {
         $type = $request->query('type', 'all'); // Default to 'all' if not provided
-        $status = $request->query('type', '');
+        $filters = $this->exportFiltersFromRequest($request);
 
         if ($type == 'declined') {
             $filename = 'crm_declined_data_' . Carbon::now()->format('d-M-Y');
@@ -4639,7 +4582,33 @@ class SaleController extends Controller
             $filename = 'sales_' . $type;
         }
 
-        return Excel::download(new SalesExport($type, $status), $filename . ".csv");
+        return Excel::download(new SalesExport($type, $filters), $filename . ".csv");
+    }
+
+    /**
+     * Collect the sales/list filters from the export request so the CSV
+     * matches the currently selected table filters.
+     */
+    protected function exportFiltersFromRequest(Request $request): array
+    {
+        $filters = [];
+        foreach ([
+            'status_filter',
+            'type_filter',
+            'category_filter',
+            'source_filter',
+            'title_filter',
+            'office_filter',
+            'user_filter',
+            'cv_limit_filter',
+            'search',
+        ] as $key) {
+            if ($request->exists($key)) {
+                $filters[$key] = $request->input($key);
+            }
+        }
+
+        return $filters;
     }
     public function getSaleDocuments(Request $request)
     {

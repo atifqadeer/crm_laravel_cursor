@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\DB;
 use App\Exports\HeadOfficesExport;
 use Maatwebsite\Excel\Facades\Excel;
 use App\Traits\Geocode;
+use App\Traits\HidesPrivateContacts;
 use Illuminate\Support\Facades\Gate;
 use App\Observers\ActionObserver;
 use Carbon\Carbon;
@@ -25,7 +26,7 @@ use Illuminate\Support\Facades\Cache;
 
 class HeadOfficeController extends Controller
 {
-    use Geocode;
+    use Geocode, HidesPrivateContacts;
 
     public function __construct()
     {
@@ -813,7 +814,7 @@ class HeadOfficeController extends Controller
             // MySQL cast the column (index skipped) instead of the literal.
             $contactableId = (string) $request->input('id');
 
-            $contacts = DB::table('contacts')
+            $contactsQuery = DB::table('contacts')
                 ->leftJoin('job_sources', 'job_sources.id', '=', 'contacts.job_source_id')
                 ->where('contacts.contactable_id', $contactableId)
                 ->where('contacts.contactable_type', $module)
@@ -825,29 +826,20 @@ class HeadOfficeController extends Controller
                     'contacts.contact_landline',
                     'contacts.contact_note',
                     'job_sources.name as job_source_name',
-                ])
-                ->get();
+                ]);
 
-            if (!Gate::allows('show-private-data')) {
-                $hidePrivateDataSetting = Setting::where('key', 'hide_private_data')->value('value');
-                $hideValues = array_values(array_filter(
-                    array_map('trim', explode(',', $hidePrivateDataSetting ?? ''))
-                ));
+            $this->excludePrivateContacts($contactsQuery);
 
-                if ($hideValues !== []) {
-                    $contacts = $contacts->filter(function ($contact) use ($hideValues) {
-                        foreach ($hideValues as $hideValue) {
-                            foreach ([$contact->contact_email, $contact->contact_name, $contact->contact_note] as $haystack) {
-                                if ($haystack !== null && $haystack !== '' && stripos((string) $haystack, $hideValue) !== false) {
-                                    return false;
-                                }
-                            }
-                        }
-
-                        return true;
-                    })->values();
-                }
+            $context = $this->privateDataContext();
+            $hideValues = $context === null ? [] : $context['values'];
+            foreach ($hideValues as $hideValue) {
+                $contactsQuery->where(function ($q) use ($hideValue) {
+                    $q->whereNull('job_sources.name')
+                        ->orWhere('job_sources.name', 'NOT LIKE', '%' . $hideValue . '%');
+                });
             }
+
+            $contacts = $contactsQuery->get();
 
             $data = $contacts->map(function ($contact) {
                 $sourceName = $contact->job_source_name;
@@ -879,7 +871,13 @@ class HeadOfficeController extends Controller
     public function export(Request $request)
     {
         $type = $request->query('type', 'all'); // Default to 'all' if not provided
+        $filters = [];
+        foreach (['status_filter', 'search'] as $key) {
+            if ($request->has($key)) {
+                $filters[$key] = $request->query($key);
+            }
+        }
 
-        return Excel::download(new HeadOfficesExport($type), "headOffices_{$type}.csv");
+        return Excel::download(new HeadOfficesExport($type, $filters), "headOffices_{$type}.csv");
     }
 }
