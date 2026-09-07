@@ -4,6 +4,7 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use Spatie\Permission\Models\Permission;
+use Spatie\Permission\Models\Role;
 
 class PermissionsTableSeeder extends Seeder
 {
@@ -285,6 +286,11 @@ class PermissionsTableSeeder extends Seeder
             'quality-assurance-resource-revert-cv',
             'quality-assurance-resource-upload-resume',
             'quality-assurance-resource-download-resume',
+            'quality-assurance-resources-tab-requested-cvs',
+            'quality-assurance-resources-tab-open-cvs',
+            'quality-assurance-resources-tab-no-job-cvs',
+            'quality-assurance-resources-tab-rejected-cvs',
+            'quality-assurance-resources-tab-cleared-cvs',
 
             // Quality Assurance Sub Modules Sales Permissions
             'quality-assurance-sale-index',
