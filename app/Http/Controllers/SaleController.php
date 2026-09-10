@@ -23,6 +23,7 @@ use Horsefly\Region;
 use App\Observers\ActionObserver;
 
 use App\Support\DialLink;
+use App\Support\HtmlNotes;
 use App\Support\IntelligentSearch;
 
 use Illuminate\Support\Facades\Auth;
@@ -49,7 +50,25 @@ class SaleController extends Controller
 
     public function __construct()
     {
-        //
+        $this->middleware('permission:sale-index')->only(['index', 'getSales']);
+        $this->middleware('permission:sale-direct-index')->only(['directSaleIndex', 'getDirectSales']);
+        $this->middleware('permission:sale-open-index')->only(['openSaleIndex', 'getOpenSales']);
+        $this->middleware('permission:sale-closed-index')->only(['closeSaleIndex', 'getClosedSales']);
+        $this->middleware('permission:sale-rejected-index')->only(['rejectedSaleIndex', 'getRejectedSales']);
+        $this->middleware('permission:sale-hold-index')->only(['onHoldSaleIndex', 'getOnHoldSales']);
+        $this->middleware('permission:sale-pending-hold-index')->only(['pendingOnHoldSaleIndex', 'pendingOnHoldSales']);
+        $this->middleware('permission:sale-create')->only(['create', 'store']);
+        $this->middleware('permission:sale-create,sale-edit')->only(['getOfficeUnits']);
+        $this->middleware('permission:sale-edit')->only(['edit', 'update']);
+        $this->middleware('permission:sale-view,sale-direct-view,sale-open-view')->only(['show', 'fetchApplicantsWithinSaleRadiusIndex', 'getApplicantsBySaleRadius']);
+        $this->middleware('permission:sale-delete')->only(['destroy']);
+        $this->middleware('permission:sale-export')->only(['export']);
+        $this->middleware('permission:sale-add-note,sale-direct-add-note,sale-open-add-note,sale-closed-add-note')->only(['storeSaleNotes']);
+        $this->middleware('permission:sale-change-status,sale-direct-change-status,sale-open-change-status,sale-closed-change-status,sale-rejected-change-status,sale-hold-change-status')->only(['changeSaleStatus']);
+        $this->middleware('permission:sale-mark-on-hold,sale-direct-mark-on-hold,sale-open-mark-on-hold')->only(['changeSaleHoldStatus']);
+        $this->middleware('permission:sale-pending-hold-mark-approved,sale-pending-hold-mark-dis-approved')->only(['updatePendingOnHoldStatus']);
+        $this->middleware('permission:sale-view-history,sale-direct-view-history,sale-open-view-history,sale-closed-view-history,sale-rejected-view-history,sale-hold-view-history')->only(['saleHistoryIndex', 'getSaleHistoryAjaxRequest']);
+        $this->middleware('permission:sale-view-documents,sale-direct-view-documents,sale-open-view-documents,sale-closed-view-documents,sale-rejected-view-documents,sale-hold-view-documents')->only(['getSaleDocuments', 'removeDocument']);
     }
 
     private function formatWithUrlCTA($fullHtml, $idPrefix, $saleId, $modalTitle)
@@ -398,6 +417,9 @@ class SaleController extends Controller
 
         $jobTitles = JobTitle::where('is_active', 1)
             ->where('job_category_id', $sale->job_category_id)
+            ->when($sale->job_type, function ($query) use ($sale) {
+                $query->where('type', $sale->job_type);
+            })
             ->orderBy('name', 'asc')
             ->get();
 
@@ -4098,7 +4120,7 @@ class SaleController extends Controller
                 ->addColumn('applicantNotes', function ($applicant) use ($sale_id) {
                     // ✅ Just use notes_details, fall back to applicant_notes field
                     $notesDetails = $applicant->notes_details ?? $applicant->applicant_notes;
-                    $notes = nl2br(htmlspecialchars($notesDetails ?? '', ENT_QUOTES, 'UTF-8'));
+                    $notes = HtmlNotes::toSafeHtml($notesDetails);
 
                     $status_value = $this->getApplicantStatusForSale($applicant, $sale_id);
 

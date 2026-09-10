@@ -47,11 +47,6 @@
 
                                         <!-- Scrollable checkbox list -->
                                         <div id="officesList">
-                                            <div class="form-check">
-                                                <input class="form-check-input office-filter" type="checkbox" value=""
-                                                    id="all-offices" data-office-id="">
-                                                <label class="form-check-label" for="all-offices">All Head Office</label>
-                                            </div>
 
                                             @foreach($offices as $office)
                                                 <div class="form-check">
@@ -84,11 +79,6 @@
 
                                         <!-- Scrollable checkbox list -->
                                         <div id="categoryList">
-                                            <div class="form-check">
-                                                <input class="form-check-input category-filter" type="checkbox" value=""
-                                                    id="all-categories" data-category-id="">
-                                                <label class="form-check-label" for="all-categories">All Categories</label>
-                                            </div>
 
                                             @foreach($jobCategories as $category)
                                                 <div class="form-check">
@@ -134,16 +124,11 @@
 
                                         <!-- Scrollable checkbox list -->
                                         <div id="titleList">
-                                            <div class="form-check">
-                                                <input class="form-check-input title-filter" type="checkbox" value=""
-                                                    id="all-titles" data-title-id="">
-                                                <label class="form-check-label" for="all-titles">All Titles</label>
-                                            </div>
                                             @foreach ($jobTitles as $title)
                                                 <div class="form-check">
                                                     <input class="form-check-input title-filter" type="checkbox"
                                                         value="{{ $title->id }}" id="title_{{ $title->id }}"
-                                                        data-title-id="{{ $title->id }}">
+                                                        data-title-id="{{ $title->id }}" data-category-id="{{ $title->job_category_id }}" data-type="{{ $title->type }}">
                                                     <label class="form-check-label"
                                                         for="title_{{ $title->id }}">{{ ucwords($title->name) }}</label>
                                                 </div>
@@ -175,11 +160,6 @@
                                         </div>
                                         <!-- Scrollable checkbox list -->
                                         <div id="sourceList">
-                                            <div class="form-check">
-                                                <input class="form-check-input source-filter" type="checkbox"
-                                                    value="" id="all-sources" data-source-id="">
-                                                <label class="form-check-label" for="all-sources">All Sources</label>
-                                            </div>
 
                                             @foreach ($jobSources as $source)
                                                 <div class="form-check">
@@ -473,7 +453,7 @@
                         d.status_filter = currentFilter;  // Send the current filter value as a parameter
                         d.type_filter = currentTypeFilter;  // Send the current filter value as a parameter
                         d.category_filter = currentCategoryFilters;  // Send the current filter value as a parameter
-                        d.title_filter = currentTitleFilters;  // Send the current filter value as a parameter
+                        d.title_filter = (typeof window.getVisibleListingTitleIds === 'function' ? window.getVisibleListingTitleIds() : currentTitleFilters);  // Send the current filter value as a parameter
                         d.office_filter = currentOfficeFilters;  // Send the current filter value as a parameter
                         d.source_filter = currentSourceFilters;  // Send the current filter value as a parameter
                         d.cv_limit_filter = currentFilterCvLimit;  // Send the current filter value as a parameter
@@ -1135,7 +1115,7 @@
             if ($(modalSelector).length === 0) {
                 $('body').append(
                     `<div class="modal fade" id="${modalId}" tabindex="-1" aria-labelledby="${modalId}Label">
-                        <div class="modal-dialog modal-dialog-scrollable modal-dialog-top">
+                        <div class="modal-dialog modal-dialog-scrollable modal-dialog-top modal-lg">
                             <div class="modal-content">
                                 <div class="modal-header">
                                     <h5 class="modal-title" id="${modalId}Label">Sale Notes History</h5>

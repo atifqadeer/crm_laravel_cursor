@@ -26,6 +26,7 @@ use Horsefly\SentEmail;
 use Horsefly\RevertStage;
 
 use App\Support\DialLink;
+use App\Support\HtmlNotes;
 
 use App\Observers\ActionObserver;
 use App\Http\Controllers\Controller;
@@ -48,6 +49,74 @@ use Illuminate\Support\Facades\Gate;
 class CrmController extends Controller
 {
     use SendEmails, SendSMS;
+
+    public function __construct()
+    {
+        $this->middleware('permission:crm-index')->only(['index']);
+        $this->middleware('permission:crm-sent-cv-list,crm-open-cv-list,crm-request-list,crm-sent-cv-no-job-list,crm-rejected-cv-list,crm-request-no-job-list,crm-rejected-by-request-list,crm-confirmation-list,crm-rebook-list,crm-attended-to-pre-start-date-list,crm-declined-list,crm-not-attended-list,crm-start-date-list,crm-start-date-hold-list,crm-invoice-list,crm-invoice-sent-list,crm-dispute-list,crm-paid-list')
+            ->only(['getCrmApplicantsAjaxRequest']);
+        $this->middleware('permission:crm-view-notes-history')->only(['crmNotesHistoryIndex', 'getApplicantCrmNotesHistoryAjaxRequest', 'getApplicantCrmNotes']);
+        $this->middleware('permission:crm-add-note')->only([
+            'updateCrmNotes',
+            'updateCrmNoJobNotes',
+            'crmRequestSave',
+            'crmConfirmSave',
+            'crmRebookSave',
+            'crmAttendedSave',
+            'crmStartDateSave',
+            'crmStartDateHoldSave',
+            'crmInvoiceFinalSave',
+        ]);
+        $this->middleware('permission:crm-send-request')->only(['crmSendRequest', 'crmSendNoJobRequest']);
+        $this->middleware('permission:crm-schedule-interview')->only([
+            'crmScheduleInterview',
+            'crmRequestNoResponse',
+            'crmRequestNoResponseToConfirmedRequest',
+            'crmRequestedInterviewEmailToApplicant',
+        ]);
+        $this->middleware('permission:crm-send-confirmation')->only(['crmRequestConfirm']);
+        $this->middleware('permission:crm-accept-confirmation')->only(['crmConfirmInterviewToAttend', 'crmConfirmInterviewToRebook', 'crmConfirmInterviewToNotAttend']);
+        $this->middleware('permission:crm-accept-rebook')->only(['crmRebookToAttended', 'crmRebookToNotAttended']);
+        $this->middleware('permission:crm-accept-attended')->only(['crmAttendedToStartDate', 'crmAttendedToDecline', 'crmNotAttendedToAttended']);
+        $this->middleware('permission:crm-accept-start-date')->only(['crmStartDateToInvoice', 'crmStartDateToHold']);
+        $this->middleware('permission:crm-accept-invoice')->only(['crmSendInvoiceToInvoiceSent', 'crmInvoiceToDispute']);
+        $this->middleware('permission:crm-accept-invoice-sent')->only(['crmInvoiceSentToPaid', 'crmInvoiceSentToDispute', 'crmOpenToPaidApplicants']);
+        $this->middleware('permission:crm-paid-toggle-status')->only(['crmChangePaidStatus']);
+        $this->middleware('permission:crm-paid-revert')->only(['crmPaidRevertToInvoiceSent']);
+        $this->middleware('permission:crm-revert')->only([
+            'crmSendRejectedCv',
+            'crmSendNoJobToRejectedCv',
+            'crmRevertInQuality',
+            'crmSentCvNoJobRevertInQuality',
+            'crmRevertRejectedCvToSentCv',
+            'crmRevertRejectedCvToQuality',
+            'crmRequestReject',
+            'crmRequestNoResponseToReject',
+            'crmRevertRequestRejectToSentCv',
+            'crmRevertRequestRejectToRequest',
+            'crmRequestRejectToQuality',
+            'crmRevertRequestedCvToSentCv',
+            'crmRevertRequestedCvToQuality',
+            'crmRevertConfirmToRequest',
+            'crmRevertConfirmToQuality',
+            'crmRevertRebookToConfirmation',
+            'crmRevertRebookToQuality',
+            'crmRevertAttendedToRebook',
+            'crmRevertAttendedToQuality',
+            'crmNotAttendedToQuality',
+            'crmRevertDeclinedToAttended',
+            'crmRevertDeclinedToQuality',
+            'crmRevertStartDateToAttended',
+            'crmStartDateToQuality',
+            'crmRevertStartDateHoldToStartDate',
+            'crmStartDateHoldToQuality',
+            'crmRevertInvoiceToStartDate',
+            'crmInvoiceToQuality',
+            'crmInvoiceSentToQuality',
+            'crmRevertDisputeToInvoice',
+            'crmDisputeToQuality',
+        ]);
+    }
 
     public function index()
     {
@@ -113,9 +182,9 @@ class CrmController extends Controller
 
         // DataTables / broken clients can send a scalar instead of an array.
         // whereIn() requires an array — a string triggers count() TypeError.
-        $categoryFilter = array_values(array_filter((array) $categoryFilter, fn ($v) => $v !== '' && $v !== null));
-        $titleFilter = array_values(array_filter((array) $titleFilter, fn ($v) => $v !== '' && $v !== null));
-        $sourceFilter = array_values(array_filter((array) $sourceFilter, fn ($v) => $v !== '' && $v !== null));
+        $categoryFilter = array_values(array_filter((array) $categoryFilter, fn($v) => $v !== '' && $v !== null));
+        $titleFilter = array_values(array_filter((array) $titleFilter, fn($v) => $v !== '' && $v !== null));
+        $sourceFilter = array_values(array_filter((array) $sourceFilter, fn($v) => $v !== '' && $v !== null));
 
         // Base query with minimal selected columns and eager loading
         $model = Applicant::query()
@@ -186,15 +255,18 @@ class CrmController extends Controller
         }
 
         // Apply other filters (typeFilter, categoryFilter, titleFilter)
-        if ($typeFilter) {
+        if (isset($typeFilter) && $typeFilter != 'all types') {
             $model->where('applicants.job_type', $typeFilter);
         }
+
         if ($categoryFilter !== []) {
             $model->whereIn('applicants.job_category_id', $categoryFilter);
         }
+
         if ($titleFilter !== []) {
             $model->whereIn('applicants.job_title_id', $titleFilter);
         }
+
         // Prefer sale source; fall back to applicant source. Never match "no source" rows.
         if ($sourceFilter !== []) {
             $sourceFilter = array_map('intval', $sourceFilter);
@@ -230,9 +302,6 @@ class CrmController extends Controller
             }
         }
 
-        // Sorting logic — deferred to DataTables' ->order() callback below so the
-        // ORDER BY clause is not baked into the filtered-count query (it only needs
-        // to apply to the final, paginated result set).
         $applySorting = function ($query) use ($request) {
             if ($request->has('order')) {
                 $orderColumn = $request->input('columns.' . $request->input('order.0.column') . '.data');
@@ -254,10 +323,6 @@ class CrmController extends Controller
         };
 
         if ($request->ajax()) {
-            // Small reference/lookup tables and request-wide constants used inside the
-            // per-row column closures below. Fetching them once here (instead of once
-            // per row inside addColumn) avoids running the same handful of queries
-            // dozens of times per page load.
             $jobTitleNamesById = JobTitle::pluck('name', 'id');
             $jobCategoryNamesById = JobCategory::pluck('name', 'id');
 
@@ -282,7 +347,7 @@ class CrmController extends Controller
                 ->skip($pageStart)
                 ->take($pageLength)
                 ->get(['applicants.id', 'sales.id as sale_id'])
-                ->map(fn ($row) => [(int) $row->id, (int) $row->sale_id])
+                ->map(fn($row) => [(int) $row->id, (int) $row->sale_id])
                 ->all();
             $this->warmCrmListEnrichment($pagePairs);
 
@@ -377,7 +442,6 @@ class CrmController extends Controller
 
                     return $phones;
                 })
-                // In your DataTable or controller
                 ->filterColumn('applicantPhone', function ($query, $keyword) {
                     $clean = preg_replace('/[^0-9]/', '', $keyword); // remove spaces, dashes, etc.
 
@@ -389,18 +453,17 @@ class CrmController extends Controller
                 })
                 ->addColumn('notes_detail', function ($applicant) {
                     $this->hydrateCrmApplicantListRow($applicant);
-                    $notes_detail = strip_tags((string) ($applicant->notes_detail ?? ''));
+                    $notesHtml = HtmlNotes::toSafeHtml($applicant->notes_detail ?? '');
+                    $notesPlain = HtmlNotes::toPlainText($applicant->notes_detail ?? '');
                     $notes_created_at = $applicant->notes_created_at
                         ? Carbon::parse($applicant->notes_created_at)->format('d M Y, h:i A')
                         : '-';
-                    $notes = "<strong>Date: {$notes_created_at}</strong><br>{$notes_detail}";
-
-                    $short = Str::limit($notes, 150);
+                    $short = e(Str::limit($notesPlain !== '' ? $notesPlain : '-', 150));
                     $modalId = 'crm-' . $applicant->id . '-' . $applicant->sale_id;
 
                     $name = e($applicant->applicant_name);
                     $postcode = e($applicant->applicant_postcode);
-                    $notesEscaped = nl2br(e($notes_detail));
+                    $notesEscaped = nl2br(e($notesPlain), false);
                     $copyId = "copy-notes-" . $applicant->id . '-' . $applicant->sale_id;
 
                     return '
@@ -471,7 +534,7 @@ class CrmController extends Controller
                     }
 
                     $sale_source_name = '';
-                    if ($applicant->sale_source_name){
+                    if ($applicant->sale_source_name) {
                         $sale_source_name = '<span class="badge bg-light text-dark">' . e($applicant->sale_source_name) . '</span>';
                     }
 
@@ -575,7 +638,7 @@ class CrmController extends Controller
                                         Send Request
                                     </a></li>';
                             }
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
                                 $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
@@ -628,7 +691,7 @@ class CrmController extends Controller
                                             Send Request
                                         </a></li>';
                             }
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
                                 $actionButtons .= '<li><a class="dropdown-item" 
                                             href="javascript:void(0);" 
                                             data-bs-toggle="modal" 
@@ -669,7 +732,7 @@ class CrmController extends Controller
                                             Revert In Sent CV
                                         </a></li>';
                             }
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
                                 $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
@@ -774,7 +837,7 @@ class CrmController extends Controller
                                     onclick="crmMoveRequestToNoResponseModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                     Mark No Response
                                 </a></li>';
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-request', [$applicant, $tabFilter])) {
                                 $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
@@ -786,7 +849,7 @@ class CrmController extends Controller
                                         Revert In Sent CV
                                     </a></li>';
                             }
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-request', [$applicant, $tabFilter])) {
                                 $actionButtons .= '<li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -881,7 +944,7 @@ class CrmController extends Controller
                                             Move to Confirmation
                                         </a></li>';
                             }
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-request', [$applicant, $tabFilter])) {
                                 $actionButtons .= '<li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -937,7 +1000,7 @@ class CrmController extends Controller
                                     Mark Confirm / Reject CV
                                 </a></li>';
 
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-request', [$applicant, $tabFilter])) {
                                 $actionButtons .= '<li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -992,7 +1055,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRejectRequestRevertToRequestModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Request
-                                    </a></li>
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1039,8 +1105,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRevertConfirmationToRequestModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Request
-                                    </a></li>
-                                    <li><a class="dropdown-item" 
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '<li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
                                         data-bs-target="#crmConfirmationRevertToQualityModal' . (int)$applicant->id . '-' . (int)$applicant->sale_id . '"
@@ -1087,7 +1155,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRevertRebookToConfirmationModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Confirmation
-                                    </a></li>
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1133,7 +1204,10 @@ class CrmController extends Controller
                                             data-sale-id="' . (int)$applicant->sale_id . '"
                                             onclick="crmRevertAttendToRebookModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                             Revert In Rebook
-                                        </a></li>
+                                        </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                         <li><a class="dropdown-item" 
                                             href="javascript:void(0);" 
                                             data-bs-toggle="modal" 
@@ -1170,7 +1244,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRevertDeclinedToAttendedModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Attended
-                                    </a></li>
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1207,7 +1284,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRevertNotAttendedToAttendedModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Attended
-                                    </a></li>
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1254,7 +1334,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRevertStartDateToAttendedModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Attended
-                                    </a></li>
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1301,7 +1384,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRevertStartDateHoldToStartDateModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Start Date
-                                    </a></li>
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1349,7 +1435,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRevertInvoiceToStartDateModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Start Date
-                                    </a></li>
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1387,7 +1476,7 @@ class CrmController extends Controller
                                         Accept CV
                                     </a></li>';
                             }
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
                                 $actionButtons .= '<li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1424,7 +1513,10 @@ class CrmController extends Controller
                                         data-sale-id="' . (int)$applicant->sale_id . '"
                                         onclick="crmRevertDisputeToInvoiceModal(' . (int)$applicant->id . ', ' . (int)$applicant->sale_id . ')">
                                         Revert In Invoice
-                                    </a></li>
+                                    </a></li>';
+                            }
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
+                                $actionButtons .= '
                                     <li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -1534,7 +1626,7 @@ class CrmController extends Controller
                                         </a>
                                     </li>';
                             }
-                            if (Gate::allows('crm-revert', [$applicant, $tabFilter])) {
+                            if (Gate::allows('crm-revert-in-quality', [$applicant, $tabFilter])) {
                                 $actionButtons .= '<li><a class="dropdown-item" 
                                         href="javascript:void(0);" 
                                         data-bs-toggle="modal" 
@@ -3389,9 +3481,9 @@ class CrmController extends Controller
                 "quality_notes.id = (
                     SELECT MAX(qn2.id) FROM quality_notes qn2
                     WHERE qn2.applicant_id = quality_notes.applicant_id
-                      AND qn2.sale_id = quality_notes.sale_id
-                      AND qn2.moved_tab_to IN ({$placeholders})
-                      {$statusSql}
+                    AND qn2.sale_id = quality_notes.sale_id
+                    AND qn2.moved_tab_to IN ({$placeholders})
+                    {$statusSql}
                 )",
                 $bindings
             );
@@ -3400,12 +3492,16 @@ class CrmController extends Controller
             $showCreated = 'lh.created_at as show_created_at';
         }
 
+        $model->leftJoin('interviews', function ($join) {
+            $join->on('applicants.id', '=', 'interviews.applicant_id')
+                ->on('sales.id', '=', 'interviews.sale_id')
+                ->where('interviews.status', 1);
+        });
+
         if (($meta['interview_join'] ?? null) === 'inner') {
-            $model->join('interviews', function ($join) {
-                $join->on('applicants.id', '=', 'interviews.applicant_id')
-                    ->on('sales.id', '=', 'interviews.sale_id')
-                    ->where('interviews.status', 1);
-            });
+            // Confirmation tab: applicant must actually have a scheduled interview.
+            $model->whereNotNull('interviews.id');
+
             $model->addSelect([
                 'interviews.schedule_time',
                 'interviews.schedule_date',
