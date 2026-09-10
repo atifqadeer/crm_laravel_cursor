@@ -31,7 +31,18 @@ class CommunicationController extends Controller
 
     public function __construct()
     {
-        //
+        $this->middleware('permission:email-index')->only(['index', 'sendEmailsToApplicants', 'saveEmailsForApplicants', 'saveComposedEmail']);
+        $this->middleware('permission:sent-email-index')->only(['sentEmailsIndex', 'getSentEmailsAjaxRequest']);
+        $this->middleware('permission:message-index')->only([
+            'Messagesindex',
+            'writeMessageindex',
+            'sendMessageToApplicant',
+            'sendChatBoxMsg',
+            'getChatBoxMessages',
+            'getApplicantsForMessage',
+            'getUnknownMessage',
+            'getUserChats',
+        ]);
     }
     public function index()
     {

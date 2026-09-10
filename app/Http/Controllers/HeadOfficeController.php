@@ -30,7 +30,13 @@ class HeadOfficeController extends Controller
 
     public function __construct()
     {
-        //
+        $this->middleware('permission:office-index')->only(['index', 'getHeadOffices', 'getHeadOfficesOld']);
+        $this->middleware('permission:office-create')->only(['create', 'store']);
+        $this->middleware('permission:office-edit')->only(['edit', 'update']);
+        $this->middleware('permission:office-view')->only(['show', 'officeDetails', 'getModuleContacts']);
+        $this->middleware('permission:office-delete')->only(['destroy']);
+        $this->middleware('permission:office-export')->only(['export']);
+        $this->middleware('permission:office-add-note')->only(['storeHeadOfficeShortNotes']);
     }
     /**
      * Display a listing of the applicants.

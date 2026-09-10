@@ -18,7 +18,11 @@ class IPAddressController extends Controller
 {
     public function __construct()
     {
-        //
+        $this->middleware('permission:administrator-ip-address-index')->only(['index', 'getIPs', 'show']);
+        $this->middleware('permission:administrator-ip-address-create')->only(['store']);
+        $this->middleware('permission:administrator-ip-address-edit')->only(['update']);
+        $this->middleware('permission:administrator-ip-address-delete')->only(['destroy']);
+        $this->middleware('permission:administrator-ip-address-export')->only(['export']);
     }
     /**
      * Display a listing of the applicants.

@@ -45,6 +45,16 @@ class ImportController extends Controller
 {
     public $timestamps = false;  // Disables automatic timestamps
 
+    public function __construct()
+    {
+        $this->middleware('permission:applicant-import,office-import,unit-import,sale-import,administrator-user-import')->only(['importIndex']);
+        $this->middleware('permission:office-import')->only(['officesImport']);
+        $this->middleware('permission:unit-import')->only(['unitsImport']);
+        $this->middleware('permission:applicant-import')->only(['applicantsImport', 'applicantsProcessFile']);
+        $this->middleware('permission:sale-import')->only(['salesImport']);
+        $this->middleware('permission:administrator-user-import')->only(['usersImport']);
+    }
+
     public function importIndex()
     {
         return view('settings.import');

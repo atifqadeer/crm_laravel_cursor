@@ -25,7 +25,15 @@ class UserController extends Controller
 {
     public function __construct()
     {
-        //
+        $this->middleware('permission:administrator-user-index')->only(['index', 'getUsers']);
+        $this->middleware('permission:administrator-user-create')->only(['create', 'store']);
+        $this->middleware('permission:administrator-user-edit')->only(['edit', 'update']);
+        $this->middleware('permission:administrator-user-view')->only(['show', 'userDetails']);
+        $this->middleware('permission:administrator-user-delete')->only(['destroy']);
+        $this->middleware('permission:administrator-user-export')->only(['export']);
+        $this->middleware('permission:administrator-user-change-status')->only(['changeUserStatus']);
+        $this->middleware('permission:administrator-user-activity-log')->only(['activityLogIndex', 'getUserActivityLogs']);
+        $this->middleware('permission:report-user-login')->only(['userLogin', 'getUsersLoginReport', 'userLoginHistoryIndex', 'getUserLoginHistory']);
     }
     /**
      * Display a listing of the applicants.
